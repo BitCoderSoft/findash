@@ -1,0 +1,70 @@
+{% extends 'investments/base.html' %}
+
+{% block title %}Cadastrar - Dash Finance{% endblock %}
+
+{% block content %}
+<div class="auth-shell">
+    <aside class="auth-brand">
+        <div class="brand-mark-lg">D</div>
+        <h2>Sua carteira, suas métricas, seu controle.</h2>
+        <p>Crie sua conta local para começar a registrar ativos e acompanhar sua evolução patrimonial.</p>
+        <svg class="auth-illustration" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0 96 L40 80 L80 88 L120 56 L160 64 L200 32 L240 44 L280 12 L320 24"
+                  stroke="rgba(255,255,255,0.55)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M0 96 L40 80 L80 88 L120 56 L160 64 L200 32 L240 44 L280 12 L320 24 L320 120 L0 120 Z"
+                  fill="url(#auth-gradient-register)" opacity="0.35"/>
+            <defs>
+                <linearGradient id="auth-gradient-register" x1="0" y1="0" x2="0" y2="120" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#ffffff" stop-opacity="0.5"/>
+                    <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+                </linearGradient>
+            </defs>
+        </svg>
+    </aside>
+
+    <div class="auth-form-area">
+        <div class="auth-form-wrap">
+            <h1>Criar conta</h1>
+            <p class="auth-subtitle">Cadastre um usuário para acessar seu dashboard local.</p>
+
+            {% if form.errors %}
+                <div class="errors">
+                    <strong>Corrija os erros abaixo:</strong>
+                    <ul>
+                        {% for field in form %}
+                            {% for error in field.errors %}
+                                <li>{{ error }}</li>
+                            {% endfor %}
+                        {% endfor %}
+                        {% for error in form.non_field_errors %}
+                            <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            <form method="post" novalidate>
+                {% csrf_token %}
+                <div class="field">
+                    <label for="id_username">Nome de usuário</label>
+                    {{ form.username }}
+                </div>
+                <div class="field">
+                    <label for="id_email">Email</label>
+                    {{ form.email }}
+                </div>
+                <div class="field">
+                    <label for="id_password1">Senha</label>
+                    {{ form.password1 }}
+                </div>
+                <div class="field">
+                    <label for="id_password2">Repetir senha</label>
+                    {{ form.password2 }}
+                </div>
+                <button type="submit" class="button primary">Cadastrar</button>
+            </form>
+            <p class="hint">Já possui conta? <a href="{% url 'login' %}">Entrar</a></p>
+        </div>
+    </div>
+</div>
+{% endblock %}

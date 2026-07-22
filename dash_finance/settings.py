@@ -67,6 +67,10 @@ TEMPLATES = [
     },
 ]
 
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'dashboard'
+LOGOUT_REDIRECT_URL = 'login'
+
 WSGI_APPLICATION = 'dash_finance.wsgi.application'
 
 
