@@ -11,13 +11,9 @@
         </div>
         <nav class="main-nav">
             <a href="{% url 'dashboard' %}" class="nav-item active">Resumo</a>
-            <span class="nav-item disabled" title="Em breve">Posições</span>
-            <span class="nav-item disabled" title="Em breve">Proventos</span>
-            <span class="nav-item disabled" title="Em breve">Patrimônio</span>
-            <span class="nav-item disabled" title="Em breve">Rentabilidade</span>
-            <span class="nav-item disabled" title="Em breve">Lançamentos</span>
         </nav>
         <div class="topbar-actions">
+            <button type="button" class="button primary" data-drawer-open="drawer-transacao">+ Novo lançamento</button>
             <form method="post" action="{% url 'logout' %}">
                 {% csrf_token %}
                 <button type="submit" class="button ghost">Sair</button>
@@ -33,23 +29,23 @@
 
         <div class="kpi-grid">
             <div class="kpi-card">
-                <span class="kpi-label">Patrimônio total</span>
-                <span class="kpi-value">R$ 0,00</span>
-                <span class="trend neutral">— sem lançamentos</span>
+                <span class="kpi-label">Valor investido</span>
+                <span class="kpi-value">R$ {{ kpis.valor_investido|floatformat:2 }}</span>
+                <span class="trend neutral">custo de aquisição</span>
             </div>
             <div class="kpi-card">
                 <span class="kpi-label">Lucro / Prejuízo</span>
-                <span class="kpi-value">R$ 0,00</span>
-                <span class="trend neutral">—</span>
+                <span class="kpi-value">—</span>
+                <span class="trend neutral">requer cotação de mercado</span>
             </div>
             <div class="kpi-card">
                 <span class="kpi-label">Rentabilidade</span>
-                <span class="kpi-value">0,00%</span>
-                <span class="trend neutral">—</span>
+                <span class="kpi-value">—</span>
+                <span class="trend neutral">requer cotação de mercado</span>
             </div>
             <div class="kpi-card">
                 <span class="kpi-label">Posições</span>
-                <span class="kpi-value">0 ativos</span>
+                <span class="kpi-value">{{ kpis.num_posicoes }} ativos</span>
                 <span class="trend neutral">—</span>
             </div>
         </div>
@@ -64,7 +60,7 @@
                     <rect x="74" y="26" width="12" height="36" rx="2" fill="currentColor" opacity="0.4"/>
                 </svg>
                 <p class="empty-title">Evolução do patrimônio</p>
-                <p class="empty-text">Assim que você registrar lançamentos, o gráfico de evolução aparece aqui.</p>
+                <p class="empty-text">Assim que houver cotação de mercado integrada, o gráfico de evolução aparece aqui.</p>
             </div>
             <div class="empty-panel">
                 <svg class="empty-illustration" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -76,5 +72,43 @@
             </div>
         </div>
     </main>
+</div>
+
+<div class="drawer-overlay {% if drawer_open %}open{% endif %}"></div>
+<div id="drawer-transacao" class="drawer {% if drawer_open %}open{% endif %}" role="dialog" aria-modal="true" aria-labelledby="drawer-transacao-title">
+    <form method="post" class="drawer-form">
+        {% csrf_token %}
+        <div class="drawer-header">
+            <h2 id="drawer-transacao-title">Novo lançamento</h2>
+            <button type="button" class="drawer-close" data-drawer-close aria-label="Fechar">&times;</button>
+        </div>
+        <div class="drawer-body">
+            {% if form.non_field_errors %}
+                <div class="errors">
+                    <ul>
+                        {% for error in form.non_field_errors %}
+                            <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+            {% for field in form %}
+                <div class="field">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}
+                        <p class="field-help">{{ field.help_text }}</p>
+                    {% endif %}
+                    {% for error in field.errors %}
+                        <p class="field-error">{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        </div>
+        <div class="drawer-footer">
+            <button type="button" class="button ghost" data-drawer-close>Cancelar</button>
+            <button type="submit" class="button primary">Salvar lançamento</button>
+        </div>
+    </form>
 </div>
 {% endblock %}
