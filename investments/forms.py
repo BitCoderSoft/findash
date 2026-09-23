@@ -31,7 +31,14 @@ class TransacaoForm(forms.ModelForm):
         model = Transacao
         fields = ['tipo', 'quantidade', 'preco_unitario', 'data', 'corretagem_taxas']
         widgets = {
-            'data': forms.DateInput(attrs={'type': 'date'}),
+            'data': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date'}),
+        }
+        labels = {
+            'tipo': 'Tipo',
+            'quantidade': 'Quantidade',
+            'preco_unitario': 'Preço unitário',
+            'data': 'Data',
+            'corretagem_taxas': 'Corretagem e taxas',
         }
 
     field_order = ['ticker', 'classe_ativo', 'tipo', 'quantidade', 'preco_unitario', 'data', 'corretagem_taxas']

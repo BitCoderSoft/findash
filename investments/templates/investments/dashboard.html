@@ -2,6 +2,73 @@
 
 {% block title %}Resumo - Dash Finance{% endblock %}
 
+{% block extra_css %}
+<style>
+    .chart-panel {
+        align-items: stretch;
+        text-align: left;
+        justify-content: flex-start;
+    }
+
+    .chart-panel-title {
+        align-self: flex-start;
+    }
+
+    .chart-svg {
+        width: 100%;
+        height: auto;
+        margin-top: 12px;
+    }
+
+    .chart-bar {
+        fill: #2a78d6;
+    }
+
+    .chart-axis {
+        stroke: var(--color-border);
+        stroke-width: 1;
+    }
+
+    .chart-bar-label, .chart-x-label {
+        fill: var(--color-text-muted);
+        font-size: 9px;
+        font-family: var(--font);
+    }
+
+    .donut-wrap {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        margin-top: 12px;
+    }
+
+    .chart-svg-donut {
+        width: 120px;
+        height: 120px;
+        flex-shrink: 0;
+    }
+
+    .chart-legend {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        font-size: var(--text-sm);
+        color: var(--color-text);
+    }
+
+    .legend-swatch {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        margin-right: 8px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="app-shell">
     <header class="topbar">
@@ -11,6 +78,7 @@
         </div>
         <nav class="main-nav">
             <a href="{% url 'dashboard' %}" class="nav-item active">Resumo</a>
+            <a href="{% url 'transacoes' %}" class="nav-item">Lançamentos</a>
         </nav>
         <div class="topbar-actions">
             <button type="button" class="button primary" data-drawer-open="drawer-transacao">+ Novo lançamento</button>
@@ -51,64 +119,71 @@
         </div>
 
         <div class="panel-grid">
-            <div class="empty-panel">
-                <svg class="empty-illustration" viewBox="0 0 96 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="2" y="34" width="12" height="28" rx="2" fill="currentColor" opacity="0.35"/>
-                    <rect x="20" y="20" width="12" height="42" rx="2" fill="currentColor" opacity="0.45"/>
-                    <rect x="38" y="40" width="12" height="22" rx="2" fill="currentColor" opacity="0.3"/>
-                    <rect x="56" y="10" width="12" height="52" rx="2" fill="currentColor" opacity="0.55"/>
-                    <rect x="74" y="26" width="12" height="36" rx="2" fill="currentColor" opacity="0.4"/>
-                </svg>
-                <p class="empty-title">Evolução do patrimônio</p>
-                <p class="empty-text">Assim que houver cotação de mercado integrada, o gráfico de evolução aparece aqui.</p>
-            </div>
-            <div class="empty-panel">
-                <svg class="empty-illustration" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="32" cy="32" r="26" stroke="currentColor" stroke-width="10" opacity="0.2"/>
-                    <path d="M32 6a26 26 0 0 1 22.5 39" stroke="currentColor" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
-                </svg>
-                <p class="empty-title">Ativos na carteira</p>
-                <p class="empty-text">A distribuição por classe de ativo aparece aqui após seu primeiro lançamento.</p>
-            </div>
+            {% if evolucao_chart %}
+                <div class="empty-panel chart-panel">
+                    <p class="empty-title chart-panel-title">Evolução do patrimônio</p>
+                    <svg viewBox="0 0 {{ evolucao_chart.width }} {{ evolucao_chart.height }}" class="chart-svg" role="img" aria-label="Evolução do valor investido mês a mês">
+                        <line x1="{{ evolucao_chart.padding_esquerda }}" y1="{{ evolucao_chart.baseline_y }}" x2="{{ evolucao_chart.axis_x2 }}" y2="{{ evolucao_chart.baseline_y }}" class="chart-axis"/>
+                        {% for barra in evolucao_chart.barras %}
+                            <path d="{{ barra.path }}" class="chart-bar">
+                                <title>{{ barra.label }}: R$ {{ barra.valor|floatformat:2 }}</title>
+                            </path>
+                            {% if forloop.last %}
+                                <text x="{{ barra.x_centro }}" y="{{ barra.valor_label_y }}" class="chart-bar-label" text-anchor="middle">R$ {{ barra.valor|floatformat:0 }}</text>
+                            {% endif %}
+                            <text x="{{ barra.x_centro }}" y="{{ evolucao_chart.label_y }}" class="chart-x-label" text-anchor="middle">{{ barra.label }}</text>
+                        {% endfor %}
+                    </svg>
+                </div>
+            {% else %}
+                <div class="empty-panel">
+                    <svg class="empty-illustration" viewBox="0 0 96 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="2" y="34" width="12" height="28" rx="2" fill="currentColor" opacity="0.35"/>
+                        <rect x="20" y="20" width="12" height="42" rx="2" fill="currentColor" opacity="0.45"/>
+                        <rect x="38" y="40" width="12" height="22" rx="2" fill="currentColor" opacity="0.3"/>
+                        <rect x="56" y="10" width="12" height="52" rx="2" fill="currentColor" opacity="0.55"/>
+                        <rect x="74" y="26" width="12" height="36" rx="2" fill="currentColor" opacity="0.4"/>
+                    </svg>
+                    <p class="empty-title">Evolução do patrimônio</p>
+                    <p class="empty-text">Assim que você registrar lançamentos, o gráfico de evolução aparece aqui.</p>
+                </div>
+            {% endif %}
+
+            {% if alocacao_chart %}
+                <div class="empty-panel chart-panel">
+                    <p class="empty-title chart-panel-title">Ativos na carteira</p>
+                    <div class="donut-wrap">
+                        <svg viewBox="0 0 120 120" class="chart-svg-donut" role="img" aria-label="Alocação por classe de ativo">
+                            <circle cx="{{ alocacao_chart.centro }}" cy="{{ alocacao_chart.centro }}" r="{{ alocacao_chart.raio }}" fill="none" stroke="var(--color-neutral-bg)" stroke-width="14"/>
+                            {% for fatia in alocacao_chart.fatias %}
+                                <circle cx="{{ alocacao_chart.centro }}" cy="{{ alocacao_chart.centro }}" r="{{ alocacao_chart.raio }}" fill="none"
+                                        stroke="{{ fatia.cor }}" stroke-width="14"
+                                        stroke-dasharray="{{ fatia.dasharray }}" stroke-dashoffset="{{ fatia.dashoffset }}"
+                                        transform="rotate(-90 {{ alocacao_chart.centro }} {{ alocacao_chart.centro }})">
+                                    <title>{{ fatia.label }}: {{ fatia.percentual|floatformat:1 }}%</title>
+                                </circle>
+                            {% endfor %}
+                        </svg>
+                        <ul class="chart-legend">
+                            {% for fatia in alocacao_chart.fatias %}
+                                <li><span class="legend-swatch" style="background:{{ fatia.cor }}"></span>{{ fatia.label }} — {{ fatia.percentual|floatformat:1 }}%</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            {% else %}
+                <div class="empty-panel">
+                    <svg class="empty-illustration" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="32" cy="32" r="26" stroke="currentColor" stroke-width="10" opacity="0.2"/>
+                        <path d="M32 6a26 26 0 0 1 22.5 39" stroke="currentColor" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+                    </svg>
+                    <p class="empty-title">Ativos na carteira</p>
+                    <p class="empty-text">A distribuição por classe de ativo aparece aqui após seu primeiro lançamento.</p>
+                </div>
+            {% endif %}
         </div>
     </main>
 </div>
 
-<div class="drawer-overlay {% if drawer_open %}open{% endif %}"></div>
-<div id="drawer-transacao" class="drawer {% if drawer_open %}open{% endif %}" role="dialog" aria-modal="true" aria-labelledby="drawer-transacao-title">
-    <form method="post" class="drawer-form">
-        {% csrf_token %}
-        <div class="drawer-header">
-            <h2 id="drawer-transacao-title">Novo lançamento</h2>
-            <button type="button" class="drawer-close" data-drawer-close aria-label="Fechar">&times;</button>
-        </div>
-        <div class="drawer-body">
-            {% if form.non_field_errors %}
-                <div class="errors">
-                    <ul>
-                        {% for error in form.non_field_errors %}
-                            <li>{{ error }}</li>
-                        {% endfor %}
-                    </ul>
-                </div>
-            {% endif %}
-            {% for field in form %}
-                <div class="field">
-                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-                    {{ field }}
-                    {% if field.help_text %}
-                        <p class="field-help">{{ field.help_text }}</p>
-                    {% endif %}
-                    {% for error in field.errors %}
-                        <p class="field-error">{{ error }}</p>
-                    {% endfor %}
-                </div>
-            {% endfor %}
-        </div>
-        <div class="drawer-footer">
-            <button type="button" class="button ghost" data-drawer-close>Cancelar</button>
-            <button type="submit" class="button primary">Salvar lançamento</button>
-        </div>
-    </form>
-</div>
+{% include 'investments/_drawer_transacao.html' %}
 {% endblock %}
