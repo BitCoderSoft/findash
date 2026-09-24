@@ -1,0 +1,17 @@
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <span class="brand-mark">D</span>
+        <span class="brand-name">Dash Finance</span>
+    </div>
+    <nav class="sidebar-nav">
+        <a href="{% url 'dashboard' %}" class="nav-item {% if active == 'dashboard' %}active{% endif %}">Resumo</a>
+        <a href="{% url 'posicoes' %}" class="nav-item {% if active == 'posicoes' %}active{% endif %}">Posições</a>
+        <a href="{% url 'transacoes' %}" class="nav-item {% if active == 'transacoes' %}active{% endif %}">Lançamentos</a>
+    </nav>
+    <div class="sidebar-footer">
+        <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="button ghost">Sair</button>
+        </form>
+    </div>
+</aside>

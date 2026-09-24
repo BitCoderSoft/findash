@@ -114,4 +114,5 @@ def montar_grafico_alocacao(alocacao):
         'raio': raio,
         'centro': centro,
         'fatias': fatias,
+        'total': sum((item['valor'] for item in alocacao), Decimal('0')),
     }

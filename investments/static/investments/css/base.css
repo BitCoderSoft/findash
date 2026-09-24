@@ -1,6 +1,9 @@
 /* ---------------------------------------------------------------
-   Dash Finance — design system v2
-   Flat surfaces, hairline borders, compact type scale.
+   Dash Finance — design system v3
+   Berry accent (não indigo/navy — ver AGENTS.md), sidebar fixa,
+   serif editorial só em título/números grandes. Paleta categórica dos
+   gráficos validada com a skill dataviz (node validate_palette.js);
+   ver AGENTS.md antes de trocar qualquer cor de gráfico ou de acento.
    --------------------------------------------------------------- */
 
 :root {
@@ -13,9 +16,9 @@
     --color-text-muted: #6b7280;
     --color-text-subtle: #9aa0ab;
 
-    --color-primary: #4338ca;
-    --color-primary-hover: #372aa8;
-    --color-primary-soft: #eef0fd;
+    --color-primary: #7c2d64;
+    --color-primary-hover: #5f2150;
+    --color-primary-soft: #f8ecf3;
 
     --color-success: #17803d;
     --color-success-bg: #e3f6ea;
@@ -23,8 +26,8 @@
     --color-danger-bg: #fbe9e8;
     --color-neutral-bg: #eef0f3;
 
-    --color-brand-panel-1: #14162b;
-    --color-brand-panel-2: #1f2247;
+    --color-brand-panel-1: #170f16;
+    --color-brand-panel-2: #3a1830;
 
     /* Radius */
     --radius-sm: 8px;
@@ -43,8 +46,12 @@
     --text-lg: 1.125rem;
     --text-xl: 1.375rem;
     --text-2xl: 1.75rem;
+    --text-3xl: 2.25rem;
 
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+
+    --sidebar-width: 216px;
 }
 
 *, *::before, *::after {
@@ -71,6 +78,11 @@ a {
 
 h1, h2, h3, p {
     margin: 0;
+}
+
+h1, h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
 }
 
 /* ---------------------------------------------------------------
@@ -317,78 +329,85 @@ select {
 }
 
 /* ---------------------------------------------------------------
-   App shell (topbar + nav)
+   App shell (sidebar fixa + área principal)
    --------------------------------------------------------------- */
 
 .app-shell {
     min-height: 100vh;
+    display: flex;
 }
 
-.topbar {
-    position: sticky;
+.sidebar {
+    position: fixed;
     top: 0;
-    z-index: 20;
+    left: 0;
+    bottom: 0;
+    width: var(--sidebar-width);
     display: flex;
-    align-items: center;
-    gap: 32px;
-    height: 56px;
-    padding: 0 24px;
+    flex-direction: column;
+    padding: 20px 14px;
     background: var(--color-surface);
-    border-bottom: 1px solid var(--color-border);
+    border-right: 1px solid var(--color-border);
+    z-index: 20;
 }
 
-.brand {
+.sidebar-brand {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
+    padding: 0 8px;
+    margin-bottom: 28px;
     flex-shrink: 0;
 }
 
 .brand-mark {
-    width: 24px;
-    height: 24px;
-    border-radius: 7px;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
     background: var(--color-primary);
     color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: var(--text-xs);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    flex-shrink: 0;
 }
 
 .brand-name {
+    font-family: var(--font-display);
     font-weight: 600;
-    font-size: var(--text-base);
+    font-size: var(--text-md);
+    white-space: nowrap;
 }
 
-.main-nav {
+.sidebar-nav {
     display: flex;
-    align-items: center;
-    gap: 4px;
-    height: 100%;
-    overflow-x: auto;
+    flex-direction: column;
+    gap: 2px;
 }
 
 .nav-item {
     display: flex;
     align-items: center;
-    height: 100%;
+    height: 38px;
     padding: 0 12px;
+    border-radius: var(--radius-sm);
     font-size: var(--text-sm);
     font-weight: 500;
     color: var(--color-text-muted);
-    border-bottom: 2px solid transparent;
     white-space: nowrap;
 }
 
 a.nav-item:hover {
+    background: var(--color-neutral-bg);
     color: var(--color-text);
 }
 
 .nav-item.active {
-    color: var(--color-text);
-    border-bottom-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
     font-weight: 600;
 }
 
@@ -397,12 +416,35 @@ a.nav-item:hover {
     cursor: not-allowed;
 }
 
-.topbar-actions {
-    margin-left: auto;
+.sidebar-footer {
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-border);
     flex-shrink: 0;
+}
+
+.sidebar-footer form,
+.sidebar-footer .button {
+    width: 100%;
+}
+
+.main-area {
+    flex: 1;
+    min-width: 0;
+    margin-left: var(--sidebar-width);
+}
+
+.page-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 15;
     display: flex;
     align-items: center;
-    gap: 12px;
+    justify-content: flex-end;
+    height: 56px;
+    padding: 0 24px;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
 }
 
 .page-content {
@@ -417,13 +459,56 @@ a.nav-item:hover {
 
 .page-heading h1 {
     font-size: var(--text-xl);
-    font-weight: 600;
 }
 
 .page-heading .page-subtitle {
     color: var(--color-text-muted);
     font-size: var(--text-sm);
-    margin-top: 2px;
+    margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+    .app-shell {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        position: static;
+        width: 100%;
+        height: auto;
+        flex-direction: row;
+        align-items: center;
+        padding: 10px 16px;
+        border-right: none;
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    .sidebar-brand {
+        margin-bottom: 0;
+    }
+
+    .sidebar-nav {
+        flex-direction: row;
+        margin-left: 16px;
+        overflow-x: auto;
+    }
+
+    .sidebar-footer {
+        margin-top: 0;
+        margin-left: auto;
+        padding-top: 0;
+        border-top: none;
+        flex-shrink: 0;
+    }
+
+    .sidebar-footer form,
+    .sidebar-footer .button {
+        width: auto;
+    }
+
+    .main-area {
+        margin-left: 0;
+    }
 }
 
 /* ---------------------------------------------------------------
@@ -449,6 +534,12 @@ a.nav-item:hover {
     gap: 8px;
 }
 
+.kpi-card.hero {
+    grid-column: span 2;
+    background: var(--color-primary-soft);
+    justify-content: center;
+}
+
 .kpi-label {
     font-size: var(--text-xs);
     font-weight: 600;
@@ -457,10 +548,25 @@ a.nav-item:hover {
     color: var(--color-text-subtle);
 }
 
+.kpi-card.hero .kpi-label {
+    color: var(--color-primary);
+}
+
 .kpi-value {
+    font-family: var(--font-display);
     font-size: var(--text-2xl);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
+}
+
+.kpi-card.hero .kpi-value {
+    font-size: var(--text-3xl);
+}
+
+@media (max-width: 640px) {
+    .kpi-card.hero {
+        grid-column: span 1;
+    }
 }
 
 .trend {
