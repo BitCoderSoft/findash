@@ -76,8 +76,20 @@ dentro de `investments`; ainda não foi necessário quebrar em apps menores.
 - `Provento`: usuário, ativo, tipo (Dividendo/JCP/Rendimento), valor, data.
   **Modelado mas ainda sem form/view/tela** — próximo passo natural depois de
   proventos entrarem no roadmap de UI.
-- Posição líquida por ativo (compras − vendas) é calculada em `services.py` a
-  partir das transações brutas, não persistida em tabela própria.
+- Posição por ativo **não é persistida em tabela própria** — é sempre recalculada
+  em `services.py` a partir das transações brutas, pelo método de **preço médio
+  ponderado** (`_custo_medio_por_ativo`): uma venda reduz o custo total pela
+  quantidade vendida × preço médio vigente no momento, não pelo preço da própria
+  venda. É o método usado no mercado brasileiro para apurar preço médio de
+  ações — uma soma ingênua de fluxo de caixa (comprou soma, vendeu subtrai pelo
+  valor da venda) dá preço médio errado depois da primeira venda parcial. Essa
+  função é a única fonte de verdade: `posicoes_atuais`, `calcular_kpis` e
+  `alocacao_por_classe` (dashboard e tela de Posições) todos partem dela — não
+  reimplementar o cálculo de posição em outro lugar.
+- `evolucao_mensal` usa a mesma lógica de preço médio para acumular mês a mês,
+  mas soma o delta de **todas** as transações, mesmo de um ativo cuja posição
+  ficou negativa (venda a descoberto) — hoje bloqueada no form (ver abaixo),
+  então na prática isso só importava para dado legado/inconsistente.
 
 ## Rotas e autenticação
 
@@ -118,6 +130,16 @@ dentro de `investments`; ainda não foi necessário quebrar em apps menores.
   o label a partir do nome do campo Python sem acentuar (`preco_unitario` vira
   "Preco unitario", não "Preço unitário"). Qualquer campo novo no model que for
   exposto nesse form precisa de entrada correspondente em `labels`.
+- **`TransacaoForm` bloqueia venda a descoberto**: recebe `usuario` no
+  `__init__` (`TransacaoForm(request.POST, usuario=request.user)`) e, no
+  `clean()`, usa `services.quantidade_disponivel` pra impedir vender mais do
+  que a posição líquida atual do ativo (erro no campo `quantidade`, sem
+  travar o app — a venda simplesmente não salva). **Toda view que instancia
+  `TransacaoForm` precisa passar `usuario=request.user`**, tanto no GET
+  (`instance=...`) quanto no POST — sem isso a validação é silenciosamente
+  pulada (`self.usuario` é `None`), não levanta erro. Este projeto não
+  trabalha com o conceito de venda a descoberto — decisão explícita do
+  usuário, não uma limitação técnica a resolver depois.
 
 ## Design system (`base.css`)
 
@@ -146,11 +168,14 @@ consistência em qualquer tela nova:
   direita), não card centralizado flutuante. Colapsa para coluna única em
   `max-width: 900px` (painel de marca escondido, formulário ocupa a tela toda).
 - **App shell**: topbar com marca + abas de navegação horizontais (sublinhado no
-  item ativo), não sidebar. Duas abas ativas hoje: Resumo (`dashboard`) e
-  Lançamentos (`transacoes`). Abas de seções ainda não implementadas (Posições,
-  Proventos, Patrimônio, Rentabilidade) devem seguir o mesmo padrão: aparecer
-  como `<span class="nav-item disabled">`, propositalmente sem `href`, até a
-  página existir de fato.
+  item ativo), não sidebar. Três abas ativas hoje, nesta ordem: Resumo
+  (`dashboard`), Posições (`posicoes`) e Lançamentos (`transacoes`) — a marcação
+  do topbar é duplicada nas três templates (mesma lista de `<a class="nav-item">`
+  repetida, sem partial próprio ainda); ao adicionar uma nova aba, atualizar as
+  três de uma vez. Abas de seções ainda não implementadas (Proventos,
+  Patrimônio, Rentabilidade) devem seguir o mesmo padrão: aparecer como
+  `<span class="nav-item disabled">`, propositalmente sem `href`, até a página
+  existir de fato.
 - **Drawer (slide-over)**: painel lateral direito (`min(520px, 92vw)`), não
   modal centralizado — usado para criar/editar lançamentos em vez de navegar
   para uma página separada. `prefers-reduced-motion` desliga a transição.
@@ -181,6 +206,10 @@ consistência em qualquer tela nova:
   de edição), mesmo para ativos que não precisam dessa precisão (ex.: ações
   compradas em unidades inteiras) — pensado para cripto, mas polui a leitura de
   quantidades "redondas".
+- Sem cadastro/edição de `Ativo` fora do drawer de lançamento — se a classe for
+  informada errada no primeiro lançamento de um ticker novo, só dá pra corrigir
+  pelo Django admin.
+- Editar/excluir uma transação é definitivo, sem histórico de alteração.
 
 ## Roadmap combinado com o usuário (ordem)
 
@@ -189,13 +218,25 @@ consistência em qualquer tela nova:
 3. ~~Tela de lançamentos (CRUD de transações via drawer)~~ — feito.
 4. ~~Dashboard com dados reais no lugar dos cards zerados~~ — feito para o que
    não depende de cotação (valor investido, posições, evolução, alocação).
-5. **Próximo passo**: UI de proventos (dividendo/JCP/rendimento) — model já
-   existe, falta form + tela, no mesmo padrão de `transacoes.html` (tabela +
-   drawer).
-6. Integração com a API de cotações (usuário já tem token) para calcular
+5. ~~Tela de Posições (preço médio + valor investido por ativo, `/posicoes/`)~~
+   — feito, junto com o bloqueio de venda a descoberto no `TransacaoForm`
+   (validado com bateria de lançamentos simulados: múltiplas compras a preços
+   diferentes, posição fechada e reaberta, taxas de corretagem, quantidade
+   fracionária de cripto).
+6. **Proventos (dividendo/JCP/rendimento) — adiado por decisão do usuário**,
+   não é prioridade agora. Quando retomar: model já existe, falta form + tela
+   no mesmo padrão de `transacoes.html` (tabela + drawer).
+7. Integração com a API de cotações (usuário já tem token) para calcular
    rentabilidade real e comparação com CDI/índices — desbloqueia os KPIs de
    Lucro/Prejuízo e Rentabilidade que hoje são `—`. Ao chegar em gráficos
    novos derivados disso, usar a skill `dataviz` deste ambiente.
+8. Diferenciação visual do design atual, que partiu de um print do Investidor10
+   e ainda se parece bastante com ele (cor de acento, navegação em abas
+   horizontais, split-screen do login). Ideias já discutidas com o usuário,
+   sem direção escolhida ainda: cor de acento fora do padrão indigo/navy de
+   fintech, navegação em rail lateral ou abas em pill, login sem o painel
+   lateral escuro + ilustração, tipografia numérica própria pros KPIs, hero
+   KPI assimétrico em vez de 4 cards iguais.
 
 ## Preferências de trabalho observadas
 

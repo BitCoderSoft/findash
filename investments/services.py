@@ -6,28 +6,83 @@ from .models import Ativo, Transacao
 MESES_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
 
-def _posicoes_liquidas(usuario):
-    """Posição líquida (compras - vendas) por ativo do usuário.
+def _custo_medio_por_ativo(usuario):
+    """Posição por ativo do usuário, calculada pelo método de preço médio.
 
-    Retorna dict ativo_id -> {'classe': str, 'quantidade': Decimal, 'valor': Decimal}.
+    Ao vender, o custo total é reduzido pela quantidade vendida * preço médio
+    vigente (não pelo preço da própria venda) — é o método de custo médio
+    ponderado usado no mercado brasileiro para apurar preço médio de ações,
+    não uma soma ingênua de fluxo de caixa. Isso mantém "valor investido" e
+    "preço médio" corretos mesmo depois de vendas parciais.
+
+    Retorna dict ativo_id -> {'ativo': Ativo, 'quantidade': Decimal, 'custo_total': Decimal}.
+    Quantidade pode ficar negativa se houver venda maior que a posição
+    disponível (dado inconsistente, ainda sem validação no form) — quem
+    consome este retorno deve filtrar por quantidade > 0 quando for tratar
+    isso como posição aberta.
     """
     posicoes = {}
 
-    transacoes = Transacao.objects.filter(usuario=usuario).values(
-        'ativo_id', 'ativo__classe', 'tipo', 'quantidade', 'preco_unitario', 'corretagem_taxas',
-    )
+    transacoes = Transacao.objects.filter(usuario=usuario).select_related('ativo').order_by('data', 'criado_em', 'pk')
 
     for t in transacoes:
-        sinal = 1 if t['tipo'] == Transacao.Tipo.COMPRA else -1
-        valor_total = t['quantidade'] * t['preco_unitario'] + t['corretagem_taxas']
-
-        pos = posicoes.setdefault(t['ativo_id'], {
-            'classe': t['ativo__classe'], 'quantidade': Decimal('0'), 'valor': Decimal('0'),
+        pos = posicoes.setdefault(t.ativo_id, {
+            'ativo': t.ativo, 'quantidade': Decimal('0'), 'custo_total': Decimal('0'),
         })
-        pos['quantidade'] += sinal * t['quantidade']
-        pos['valor'] += sinal * valor_total
+
+        if t.tipo == Transacao.Tipo.COMPRA:
+            pos['quantidade'] += t.quantidade
+            pos['custo_total'] += t.quantidade * t.preco_unitario + t.corretagem_taxas
+        else:
+            preco_medio = pos['custo_total'] / pos['quantidade'] if pos['quantidade'] > 0 else Decimal('0')
+            pos['quantidade'] -= t.quantidade
+            pos['custo_total'] -= t.quantidade * preco_medio
 
     return posicoes
+
+
+def quantidade_disponivel(usuario, ativo, excluir_transacao_id=None):
+    """Quantidade líquida em carteira (compras - vendas) para um ativo.
+
+    Usado só para validar venda no `TransacaoForm` (bloquear venda a
+    descoberto) — não passa pelo método de preço médio porque aqui só
+    importa a quantidade, não o custo. `excluir_transacao_id` ignora a
+    própria transação sendo editada, senão editar uma venda existente
+    conta ela mesma contra si.
+    """
+    transacoes = Transacao.objects.filter(usuario=usuario, ativo=ativo)
+    if excluir_transacao_id:
+        transacoes = transacoes.exclude(pk=excluir_transacao_id)
+
+    quantidade = Decimal('0')
+    for t in transacoes.values('tipo', 'quantidade'):
+        sinal = 1 if t['tipo'] == Transacao.Tipo.COMPRA else -1
+        quantidade += sinal * t['quantidade']
+    return quantidade
+
+
+def posicoes_atuais(usuario):
+    """Posições abertas (quantidade > 0) com preço médio, para a tela de Posições.
+
+    Ordenada por valor investido (maior primeiro) — não por ticker — para
+    destacar as posições mais relevantes da carteira primeiro.
+    """
+    posicoes = _custo_medio_por_ativo(usuario)
+    abertas = [p for p in posicoes.values() if p['quantidade'] > 0]
+    total = sum((p['custo_total'] for p in abertas), Decimal('0'))
+
+    resultado = []
+    for p in abertas:
+        resultado.append({
+            'ativo': p['ativo'],
+            'quantidade': p['quantidade'],
+            'preco_medio': p['custo_total'] / p['quantidade'],
+            'valor_investido': p['custo_total'],
+            'percentual': float(p['custo_total'] / total * 100) if total > 0 else 0.0,
+        })
+
+    resultado.sort(key=lambda p: p['valor_investido'], reverse=True)
+    return resultado
 
 
 def calcular_kpis(usuario):
@@ -37,9 +92,9 @@ def calcular_kpis(usuario):
     dados esperado é pequeno (uso pessoal) e a aritmética em Decimal puro é
     mais fácil de revisar do que Case/When no banco.
     """
-    posicoes = _posicoes_liquidas(usuario)
+    posicoes = _custo_medio_por_ativo(usuario)
 
-    valor_investido = sum((p['valor'] for p in posicoes.values()), Decimal('0'))
+    valor_investido = sum((p['custo_total'] for p in posicoes.values() if p['quantidade'] > 0), Decimal('0'))
     num_posicoes = sum(1 for p in posicoes.values() if p['quantidade'] > 0)
 
     return {
@@ -58,12 +113,13 @@ def alocacao_por_classe(usuario):
     (não por tamanho), para a cor de cada classe não mudar conforme a
     carteira muda.
     """
-    posicoes = _posicoes_liquidas(usuario)
+    posicoes = _custo_medio_por_ativo(usuario)
 
     valor_por_classe = {}
     for pos in posicoes.values():
-        if pos['quantidade'] > 0 and pos['valor'] > 0:
-            valor_por_classe[pos['classe']] = valor_por_classe.get(pos['classe'], Decimal('0')) + pos['valor']
+        if pos['quantidade'] > 0 and pos['custo_total'] > 0:
+            classe = pos['ativo'].classe
+            valor_por_classe[classe] = valor_por_classe.get(classe, Decimal('0')) + pos['custo_total']
 
     total = sum(valor_por_classe.values(), Decimal('0'))
     if total <= 0:
@@ -85,21 +141,35 @@ def alocacao_por_classe(usuario):
 
 
 def evolucao_mensal(usuario):
-    """Valor investido líquido acumulado, mês a mês, desde o primeiro lançamento.
+    """Custo de aquisição acumulado (método de preço médio), mês a mês.
 
-    Meses sem nenhum lançamento repetem o acumulado do mês anterior (sem
-    buracos no gráfico).
+    Cada venda reduz o acumulado pelo preço médio vigente do ativo naquele
+    momento (mesma lógica de `_custo_medio_por_ativo`), não pelo preço da
+    própria venda — senão o gráfico diverge do KPI "Valor investido" e da
+    tela de Posições sempre que houver venda parcial. Meses sem nenhum
+    lançamento repetem o acumulado do mês anterior (sem buracos no gráfico).
     """
-    transacoes = Transacao.objects.filter(usuario=usuario).values(
-        'tipo', 'quantidade', 'preco_unitario', 'corretagem_taxas', 'data',
+    transacoes = Transacao.objects.filter(usuario=usuario).order_by('data', 'criado_em', 'pk').values(
+        'ativo_id', 'tipo', 'quantidade', 'preco_unitario', 'corretagem_taxas', 'data',
     )
 
+    estado_por_ativo = {}
     deltas_por_mes = {}
     for t in transacoes:
-        sinal = 1 if t['tipo'] == Transacao.Tipo.COMPRA else -1
-        valor_total = t['quantidade'] * t['preco_unitario'] + t['corretagem_taxas']
+        estado = estado_por_ativo.setdefault(t['ativo_id'], {'quantidade': Decimal('0'), 'custo_total': Decimal('0')})
+
+        if t['tipo'] == Transacao.Tipo.COMPRA:
+            delta = t['quantidade'] * t['preco_unitario'] + t['corretagem_taxas']
+            estado['quantidade'] += t['quantidade']
+            estado['custo_total'] += delta
+        else:
+            preco_medio = estado['custo_total'] / estado['quantidade'] if estado['quantidade'] > 0 else Decimal('0')
+            delta = -(t['quantidade'] * preco_medio)
+            estado['quantidade'] -= t['quantidade']
+            estado['custo_total'] += delta
+
         chave = (t['data'].year, t['data'].month)
-        deltas_por_mes[chave] = deltas_por_mes.get(chave, Decimal('0')) + sinal * valor_total
+        deltas_por_mes[chave] = deltas_por_mes.get(chave, Decimal('0')) + delta
 
     if not deltas_por_mes:
         return []
