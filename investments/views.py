@@ -5,8 +5,16 @@ from django.views.decorators.http import require_POST
 
 from .charts import CORES_CLASSE, montar_grafico_alocacao, montar_grafico_evolucao
 from .forms import TransacaoForm, UserRegisterForm
+from .market_data import BrapiError, buscar_cotacoes
 from .models import Transacao
-from .services import alocacao_por_classe, calcular_kpis, evolucao_mensal, posicoes_por_classe
+from .services import (
+    alocacao_por_classe,
+    aplicar_cotacoes,
+    calcular_kpis,
+    destaques_carteira,
+    evolucao_mensal,
+    posicoes_por_classe,
+)
 
 
 @login_required(login_url='login')
@@ -51,10 +59,21 @@ def posicoes(request):
     for grupo in grupos:
         grupo['cor'] = CORES_CLASSE[grupo['classe']]
 
+    tickers = [p['ativo'].ticker for grupo in grupos for p in grupo['posicoes']]
+    cotacoes = {}
+    if tickers:
+        try:
+            cotacoes = buscar_cotacoes(tickers)
+        except BrapiError as exc:
+            messages.warning(request, f'Não foi possível buscar cotação de mercado agora: {exc}')
+
+    aplicar_cotacoes(grupos, cotacoes)
+
     context = {
         'form': form,
         'drawer_open': drawer_open,
         'grupos': grupos,
+        'destaques': destaques_carteira(grupos),
         'kpis': calcular_kpis(request.user),
     }
     return render(request, 'investments/posicoes.html', context)

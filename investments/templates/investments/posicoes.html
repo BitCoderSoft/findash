@@ -42,18 +42,45 @@
                         <span class="summary-card-title">Destaques da carteira</span>
                         <button type="button" class="info-button" data-drawer-open="drawer-info-rentabilidade" aria-label="Como calculamos os destaques">?</button>
                     </div>
-                    <div class="destaques-grid">
-                        <div class="destaque-item">
-                            <p class="destaque-label">Melhor posição</p>
-                            <p class="destaque-value">—</p>
-                            <p class="destaque-sub">requer cotação de mercado</p>
+                    {% if destaques.avaliadas %}
+                        <div class="destaques-grid">
+                            <div class="destaque-item">
+                                <p class="destaque-label">Melhor posição</p>
+                                <p class="destaque-value">{{ destaques.melhor.ativo.ticker }}</p>
+                                <p class="destaque-sub">
+                                    {% if destaques.melhor.lucro %}
+                                        <span class="trend up">+{{ destaques.melhor.rentabilidade_percentual|floatformat:2 }}%</span>
+                                    {% else %}
+                                        <span class="trend down">{{ destaques.melhor.rentabilidade_percentual|floatformat:2 }}%</span>
+                                    {% endif %}
+                                </p>
+                            </div>
+                            <div class="destaque-item">
+                                <p class="destaque-label">Pior posição</p>
+                                <p class="destaque-value">{{ destaques.pior.ativo.ticker }}</p>
+                                <p class="destaque-sub">
+                                    {% if destaques.pior.lucro %}
+                                        <span class="trend up">+{{ destaques.pior.rentabilidade_percentual|floatformat:2 }}%</span>
+                                    {% else %}
+                                        <span class="trend down">{{ destaques.pior.rentabilidade_percentual|floatformat:2 }}%</span>
+                                    {% endif %}
+                                </p>
+                            </div>
                         </div>
-                        <div class="destaque-item">
-                            <p class="destaque-label">Pior posição</p>
-                            <p class="destaque-value">—</p>
-                            <p class="destaque-sub">requer cotação de mercado</p>
+                    {% else %}
+                        <div class="destaques-grid">
+                            <div class="destaque-item">
+                                <p class="destaque-label">Melhor posição</p>
+                                <p class="destaque-value">—</p>
+                                <p class="destaque-sub">requer cotação de mercado</p>
+                            </div>
+                            <div class="destaque-item">
+                                <p class="destaque-label">Pior posição</p>
+                                <p class="destaque-value">—</p>
+                                <p class="destaque-sub">requer cotação de mercado</p>
+                            </div>
                         </div>
-                    </div>
+                    {% endif %}
                 </div>
 
                 <div class="summary-card">
@@ -61,9 +88,17 @@
                         <span class="summary-card-title">Posições no lucro</span>
                         <button type="button" class="info-button" data-drawer-open="drawer-info-rentabilidade" aria-label="Como calculamos isso">?</button>
                     </div>
-                    <p class="destaque-value">— de {{ kpis.num_posicoes }}</p>
-                    <div class="progress-bar"><div class="progress-bar-fill" style="width: 0%;"></div></div>
-                    <p class="destaque-sub">requer cotação de mercado</p>
+                    {% if destaques.avaliadas %}
+                        <p class="destaque-value">{{ destaques.no_lucro }} de {{ destaques.avaliadas }}</p>
+                        <div class="progress-bar"><div class="progress-bar-fill" style="width: {{ destaques.percentual_no_lucro }}%; background: var(--color-success);"></div></div>
+                        {% if destaques.sem_cotacao %}
+                            <p class="destaque-sub">{{ destaques.sem_cotacao }} posição(ões) sem cotação disponível</p>
+                        {% endif %}
+                    {% else %}
+                        <p class="destaque-value">— de {{ kpis.num_posicoes }}</p>
+                        <div class="progress-bar"><div class="progress-bar-fill" style="width: 0%;"></div></div>
+                        <p class="destaque-sub">requer cotação de mercado</p>
+                    {% endif %}
                 </div>
             </div>
 
@@ -87,6 +122,8 @@
                                     <th>Ativo</th>
                                     <th>Quantidade</th>
                                     <th>Preço médio</th>
+                                    <th>Preço atual</th>
+                                    <th>Rentabilidade</th>
                                     <th>Valor investido</th>
                                     <th>% da carteira</th>
                                 </tr>
@@ -94,9 +131,38 @@
                             <tbody>
                                 {% for posicao in grupo.posicoes %}
                                     <tr>
-                                        <td>{{ posicao.ativo.ticker }}</td>
+                                        <td>
+                                            <div class="ativo-cell">
+                                                {% if posicao.cotacao.logo_url %}
+                                                    <img src="{{ posicao.cotacao.logo_url }}" alt="" class="ativo-logo" loading="lazy"
+                                                         data-fallback="{{ posicao.ativo.ticker|slice:':2' }}"
+                                                         onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'ativo-logo ativo-logo-fallback',textContent:this.dataset.fallback}))">
+                                                {% else %}
+                                                    <span class="ativo-logo ativo-logo-fallback">{{ posicao.ativo.ticker|slice:":2" }}</span>
+                                                {% endif %}
+                                                {{ posicao.ativo.ticker }}
+                                            </div>
+                                        </td>
                                         <td>{{ posicao.quantidade|quantidade_fmt:posicao.ativo.classe }}</td>
                                         <td>R$ {{ posicao.preco_medio|floatformat:2 }}</td>
+                                        <td>
+                                            {% if posicao.preco_atual %}
+                                                R$ {{ posicao.preco_atual|floatformat:2 }}
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if posicao.rentabilidade_percentual is not None %}
+                                                {% if posicao.lucro %}
+                                                    <span class="trend up">+{{ posicao.rentabilidade_percentual|floatformat:2 }}%</span>
+                                                {% else %}
+                                                    <span class="trend down">{{ posicao.rentabilidade_percentual|floatformat:2 }}%</span>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="trend neutral">—</span>
+                                            {% endif %}
+                                        </td>
                                         <td>R$ {{ posicao.valor_investido|floatformat:2 }}</td>
                                         <td>{{ posicao.percentual|floatformat:1 }}%</td>
                                     </tr>
@@ -129,11 +195,10 @@
     </div>
     <div class="drawer-body">
         <p style="margin-bottom: 16px;">
-            Estes cards ainda não têm dado real — o Dash Finance por enquanto só
-            conhece o <strong>preço médio</strong> de cada posição (quanto você
-            pagou), não a <strong>cotação atual</strong> do ativo no mercado.
-            Assim que a integração com a API de cotações entrar, eles passam a
-            calcular automaticamente:
+            A cotação vem da <strong>brapi.dev</strong> e cobre ações e FIIs.
+            Criptomoeda e renda fixa ainda aparecem como "—" aqui — essa API é
+            só de ativos da B3, não tem fonte de cotação plugada pra essas
+            classes ainda.
         </p>
         <p style="margin-bottom: 16px;">
             <strong>Rentabilidade de uma posição</strong> = (preço atual − preço
@@ -145,9 +210,10 @@
             hoje.
         </p>
         <p>
-            <strong>Posições no lucro</strong> = quantas das suas posições
-            abertas têm rentabilidade positiva neste momento, sobre o total de
-            posições.
+            <strong>Posições no lucro</strong> = quantas das suas posições com
+            cotação disponível têm rentabilidade positiva neste momento, sobre
+            o total de posições avaliadas (não conta cripto/renda fixa, que
+            ainda não têm cotação).
         </p>
     </div>
     <div class="drawer-footer">

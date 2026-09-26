@@ -17,10 +17,16 @@ no curto prazo), mas login/senha já existem para proteger os dados na máquina.
 ## Stack
 
 - Python 3.14, Django 6.0.7 (`asgiref`, `sqlparse` como dependências transitivas).
+  Mais `requests` (cliente HTTP da API de cotação) e `python-dotenv` (carrega
+  `.env`) — únicas dependências de terceiros além do Django em si.
 - Dependências fixadas em `requirements.txt` (instalar com `pip install -r requirements.txt`
   dentro do `venv/`). Toda vez que uma dependência nova for instalada, rodar
   `pip freeze > requirements.txt` para manter o arquivo fiel ao que está em uso —
   é convenção fixa deste projeto, não só para o setup inicial.
+- Segredos (hoje só `BRAPI_TOKEN`) vêm de `.env` na raiz (`python-dotenv`
+  carregado em `settings.py`, `.env` no `.gitignore`, nunca commitar o valor
+  real). `.env.example` é versionado e documenta as chaves esperadas —
+  atualizar os dois juntos ao adicionar uma variável nova.
 - Banco: SQLite (`db.sqlite3` na raiz, ignorado via `.gitignore` — não versionado).
 - Sem frontend framework: HTML + CSS puro servido via templates Django
   (`django.contrib.staticfiles`, sem bundler/build step). Interatividade mínima
@@ -41,6 +47,7 @@ investments/           # único app até agora
   models.py            # Ativo, Transacao, Provento (Provento ainda sem UI/uso)
   services.py          # agregações puras em Python: KPIs, posições (por ativo e por classe), evolução mensal
   charts.py            # monta a geometria SVG (barras + donut) a partir do que services.py calcula
+  market_data.py       # cliente da API brapi.dev (cotação) — ver docs/brapi.md
   forms.py             # UserRegisterForm + TransacaoForm (cria Ativo on-the-fly, bloqueia venda a descoberto)
   views.py             # dashboard, posicoes, transacoes (list+CRUD via drawer), transacao_excluir, register
   urls.py              # '', 'posicoes/', 'transacoes/', 'transacoes/<pk>/excluir/', 'login/', 'logout/', 'register/'
@@ -51,14 +58,18 @@ investments/           # único app até agora
     login.html                 # tela de login (layout split-screen)
     register.html               # tela de cadastro (mesmo layout)
     dashboard.html               # dashboard "Resumo": KPIs reais + gráfico de evolução + donut de alocação
-    posicoes.html                 # posições agrupadas por classe + cards de destaque (placeholder) + drawer explicativo
+    posicoes.html                 # posições agrupadas por classe, preço atual/rentabilidade (brapi), badge de logo, cards de destaque + drawer explicativo
     transacoes.html               # tabela de lançamentos (CRUD) + botão "+ Novo lançamento"
     _drawer_transacao.html         # partial do formulário de lançamento, incluído por dashboard/posicoes/transacoes.html
   static/investments/
     css/base.css         # design system único do projeto (ver abaixo)
     js/drawer.js          # abrir/fechar drawer (data-drawer-open/close), foco, ESC, overlay — vanilla JS, genérico (funciona com qualquer par overlay+drawer por id, não só o de lançamento)
+docs/
+  brapi.md             # referência da API de cotação (endpoint, auth, erros, exemplo de resposta)
 manage.py
 requirements.txt       # dependências fixadas (manter atualizado com pip freeze)
+.env                   # BRAPI_TOKEN real — não versionado, nunca commitar
+.env.example           # documenta as chaves esperadas em .env — este sim é versionado
 .gitignore
 README.md              # instalação, venv e como rodar o projeto
 AGENTS.md              # este arquivo
@@ -121,6 +132,47 @@ dentro de `investments`; ainda não foi necessário quebrar em apps menores.
 - `/register/` → view custom (`views.register`) usando `UserRegisterForm`, redireciona
   para `login` com mensagem de sucesso via `django.contrib.messages`.
 - `LOGIN_URL`, `LOGIN_REDIRECT_URL`, `LOGOUT_REDIRECT_URL` configurados em `settings.py`.
+
+## Integração de cotação de mercado (brapi.dev)
+
+Referência completa da API em docs/brapi.md — aqui só o que é específico
+de como isso se encaixa no projeto.
+
+- `investments/market_data.py` é a única parte do projeto que fala com o
+  mundo externo (HTTP). `services.py` continua sem I/O de rede — a busca de
+  cotação acontece na view (`views.posicoes`), e o resultado (um dict
+  `symbol -> CotacaoAtivo`) é passado pra `services.aplicar_cotacoes(grupos,
+  cotacoes)`, que só enriquece o que `posicoes_por_classe` já calculou. Não
+  botar chamada de rede dentro de `services.py`.
+- **Uma requisição HTTP por ticker, não em lote** — o plano da brapi usado
+  aqui só libera 1 ativo por requisição (testado contra a API real; a doc
+  pública sugere que `symbols=A,B,C` funciona, mas não nesse plano). Ver
+  docs/brapi.md pro erro exato. Se isso mudar (upgrade de plano), dá pra
+  simplificar `buscar_cotacoes` de volta pra uma chamada combinada — mas
+  revalidar antes de assumir.
+- **Sem cache** — decisão explícita do usuário (cota de 15.000 req/dia,
+  folga de sobra). Isso significa N requisições sequenciais síncronas toda
+  vez que `/posicoes/` carrega (N = nº de tickers distintos na carteira),
+  com a latência de rede somada. Se isso incomodar ou a carteira crescer
+  muito, cache com TTL curto (alguns minutos) é o próximo passo natural —
+  não implementar isso preventivamente sem o usuário pedir.
+- **Falha parcial não quebra a página**: `buscar_cotacoes` omite do dict
+  qualquer ticker que falhar (inválido, erro de rede pontual) em vez de
+  levantar erro; `aplicar_cotacoes` trata ausência de cotação como `None` em
+  todos os campos derivados (nunca `KeyError`/crash). Só uma falha "de
+  configuração" (token ausente) levanta `BrapiError` até a view, que vira
+  `messages.warning` — a página sempre renderiza, na pior das hipóteses com
+  os placeholders de antes da integração.
+- **Só cobre Ação/FII.** Cripto e Renda fixa não têm ticker na B3, então
+  nunca vêm da brapi — `rentabilidade_percentual`/`preco_atual` ficam `None`
+  pra essas posições por design, não é bug. `services.destaques_carteira`
+  já desconta isso (`avaliadas`/`sem_cotacao` no retorno).
+- **Badge de logo**: `CotacaoAtivo.logo_url` vem da API, mas nem todo ticker
+  tem ícone hospedado de verdade (ex.: alguns FIIs retornam uma `logourl`
+  que dá 404 no navegador). O fallback (iniciais do ticker em
+  `.ativo-logo-fallback`) é tratado no `onerror` da `<img>` em
+  `posicoes.html`, via JS inline — não em Python, porque só o browser sabe
+  se a imagem carregou de verdade.
 
 ## Fluxo do drawer de lançamento
 
@@ -248,10 +300,21 @@ consistência em qualquer tela nova:
 6. **Proventos (dividendo/JCP/rendimento) — adiado por decisão do usuário**,
    não é prioridade agora. Quando retomar: model já existe, falta form + tela
    no mesmo padrão de `transacoes.html` (tabela + drawer).
-7. Integração com a API de cotações (usuário já tem token) para calcular
-   rentabilidade real e comparação com CDI/índices — desbloqueia os KPIs de
-   Lucro/Prejuízo e Rentabilidade que hoje são `—`. Ao chegar em gráficos
-   novos derivados disso, usar a skill `dataviz` deste ambiente.
+7. ~~Integração com a API de cotações — tela de Posições~~ — feito: preço
+   atual, rentabilidade por posição, badge com logo do ativo (com fallback
+   pras iniciais do ticker quando a imagem falha), e os cards "Destaques da
+   carteira"/"Posições no lucro" com dado real (`services.aplicar_cotacoes`/
+   `destaques_carteira`, ver seção própria abaixo). **Sem cache ainda —
+   decisão explícita do usuário** (plano da brapi dele tem 15.000
+   requisições/dia, folga de sobra pro volume de uma carteira pessoal;
+   reconsiderar se a carteira crescer muito ou a latência incomodar).
+   Só cobre Ação/FII (é o que a brapi cobre) — Cripto/Renda fixa continuam
+   com rentabilidade `—`, sem fonte de cotação plugada.
+   **Falta ainda**: os KPIs de Lucro/Prejuízo e Rentabilidade no Resumo (hoje
+   só a tela de Posições tem dado real; dá pra somar o que
+   `aplicar_cotacoes` já calcula por posição em vez de reimplementar). Ao
+   chegar em gráficos novos derivados disso (ex.: comparação com CDI/IBOV),
+   usar a skill `dataviz` deste ambiente.
 8. Diferenciação visual do design atual, que partiu de um print do Investidor10
    e ainda se parece bastante com ele (cor de acento, navegação em abas
    horizontais, split-screen do login). Ideias já discutidas com o usuário,

@@ -10,10 +10,17 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Carrega variáveis de .env (não versionado — ver .gitignore) antes de
+# qualquer os.environ.get() usado neste arquivo, ex.: BRAPI_TOKEN abaixo.
+load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
@@ -120,3 +127,9 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+# APIs externas
+# Token da brapi.dev (cotações de ações/FIIs) — nunca hardcoded aqui, vem só
+# de .env (não versionado). Ver docs/brapi.md e investments/market_data.py.
+BRAPI_TOKEN = os.environ.get('BRAPI_TOKEN', '')

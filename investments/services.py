@@ -117,6 +117,55 @@ def posicoes_por_classe(usuario):
     return resultado
 
 
+def aplicar_cotacoes(grupos, cotacoes):
+    """Enriquece os grupos de posicoes_por_classe() com cotação de mercado.
+
+    `cotacoes` é o retorno de `market_data.buscar_cotacoes()` — este módulo
+    continua sem fazer chamada de rede, só aplica o que já foi buscado (busca
+    é responsabilidade da view). Cada posição ganha `cotacao`, `preco_atual`,
+    `rentabilidade_percentual` e `lucro`; ficam `None` quando o ticker não tem
+    cotação disponível (cripto/renda fixa hoje não têm fonte plugada, ou a
+    brapi não respondeu) — nunca levanta erro por posição individual.
+    """
+    for grupo in grupos:
+        for p in grupo['posicoes']:
+            cot = cotacoes.get(p['ativo'].ticker)
+            if cot and p['preco_medio'] > 0:
+                p['cotacao'] = cot
+                p['preco_atual'] = cot.preco_atual
+                p['rentabilidade_percentual'] = float((cot.preco_atual - p['preco_medio']) / p['preco_medio'] * 100)
+                p['lucro'] = p['rentabilidade_percentual'] > 0
+            else:
+                p['cotacao'] = None
+                p['preco_atual'] = None
+                p['rentabilidade_percentual'] = None
+                p['lucro'] = None
+    return grupos
+
+
+def destaques_carteira(grupos):
+    """Melhor/pior posição por rentabilidade e contagem de posições no lucro.
+
+    Só considera posições com `rentabilidade_percentual` calculado (ver
+    `aplicar_cotacoes`) — chamar depois dela, nunca antes.
+    """
+    todas = [p for grupo in grupos for p in grupo['posicoes']]
+    avaliadas = [p for p in todas if p['rentabilidade_percentual'] is not None]
+    base = {'total': len(todas), 'avaliadas': len(avaliadas), 'sem_cotacao': len(todas) - len(avaliadas)}
+
+    if not avaliadas:
+        return {**base, 'melhor': None, 'pior': None, 'no_lucro': 0, 'percentual_no_lucro': 0.0}
+
+    no_lucro = sum(1 for p in avaliadas if p['lucro'])
+    return {
+        **base,
+        'melhor': max(avaliadas, key=lambda p: p['rentabilidade_percentual']),
+        'pior': min(avaliadas, key=lambda p: p['rentabilidade_percentual']),
+        'no_lucro': no_lucro,
+        'percentual_no_lucro': float(no_lucro / len(avaliadas) * 100),
+    }
+
+
 def calcular_kpis(usuario):
     """Agrega as transações do usuário em KPIs para o dashboard.
 
