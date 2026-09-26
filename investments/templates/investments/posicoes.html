@@ -4,12 +4,24 @@
 
 {% block content %}
 <div class="app-shell">
-    {% include 'investments/_sidebar.html' with active='posicoes' %}
-
-    <div class="main-area">
-        <header class="page-topbar">
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-mark">D</span>
+            <span class="brand-name">Dash Finance</span>
+        </div>
+        <nav class="main-nav">
+            <a href="{% url 'dashboard' %}" class="nav-item">Resumo</a>
+            <a href="{% url 'posicoes' %}" class="nav-item active">Posições</a>
+            <a href="{% url 'transacoes' %}" class="nav-item">Lançamentos</a>
+        </nav>
+        <div class="topbar-actions">
             <button type="button" class="button primary" data-drawer-open="drawer-transacao">+ Novo lançamento</button>
-        </header>
+            <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button type="submit" class="button ghost">Sair</button>
+            </form>
+        </div>
+    </header>
 
     <main class="page-content">
         <div class="page-heading">
@@ -55,7 +67,6 @@
             </div>
         {% endif %}
     </main>
-    </div>
 </div>
 
 {% include 'investments/_drawer_transacao.html' %}
