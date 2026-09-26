@@ -1,4 +1,5 @@
 {% extends 'investments/base.html' %}
+{% load investments_extras %}
 
 {% block title %}Posições - Dash Finance{% endblock %}
 
@@ -26,36 +27,85 @@
     <main class="page-content">
         <div class="page-heading">
             <h1>Posições</h1>
-            <p class="page-subtitle">Preço médio e valor investido por ativo, com base nos lançamentos registrados.</p>
+            <p class="page-subtitle">Preço médio e valor investido por ativo, agrupado por classe.</p>
         </div>
 
-        {% if posicoes %}
-            <div class="table-wrap">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Ativo</th>
-                            <th>Classe</th>
-                            <th>Quantidade</th>
-                            <th>Preço médio</th>
-                            <th>Valor investido</th>
-                            <th>% da carteira</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for posicao in posicoes %}
-                            <tr>
-                                <td>{{ posicao.ativo.ticker }}</td>
-                                <td>{{ posicao.ativo.get_classe_display }}</td>
-                                <td>{{ posicao.quantidade|floatformat:8 }}</td>
-                                <td>R$ {{ posicao.preco_medio|floatformat:2 }}</td>
-                                <td>R$ {{ posicao.valor_investido|floatformat:2 }}</td>
-                                <td>{{ posicao.percentual|floatformat:1 }}%</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+        {% if grupos %}
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <span class="summary-card-title">Valor investido</span>
+                    <p class="kpi-value" style="margin-top: 10px;">R$ {{ kpis.valor_investido|floatformat:2 }}</p>
+                </div>
+
+                <div class="summary-card">
+                    <div class="summary-card-header">
+                        <span class="summary-card-title">Destaques da carteira</span>
+                        <button type="button" class="info-button" data-drawer-open="drawer-info-rentabilidade" aria-label="Como calculamos os destaques">?</button>
+                    </div>
+                    <div class="destaques-grid">
+                        <div class="destaque-item">
+                            <p class="destaque-label">Melhor posição</p>
+                            <p class="destaque-value">—</p>
+                            <p class="destaque-sub">requer cotação de mercado</p>
+                        </div>
+                        <div class="destaque-item">
+                            <p class="destaque-label">Pior posição</p>
+                            <p class="destaque-value">—</p>
+                            <p class="destaque-sub">requer cotação de mercado</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="summary-card">
+                    <div class="summary-card-header">
+                        <span class="summary-card-title">Posições no lucro</span>
+                        <button type="button" class="info-button" data-drawer-open="drawer-info-rentabilidade" aria-label="Como calculamos isso">?</button>
+                    </div>
+                    <p class="destaque-value">— de {{ kpis.num_posicoes }}</p>
+                    <div class="progress-bar"><div class="progress-bar-fill" style="width: 0%;"></div></div>
+                    <p class="destaque-sub">requer cotação de mercado</p>
+                </div>
             </div>
+
+            {% for grupo in grupos %}
+                <div class="classe-group">
+                    <div class="classe-group-header">
+                        <div class="classe-group-title">
+                            <span class="color-dot" style="background: {{ grupo.cor }};"></span>
+                            {{ grupo.label }}
+                            <span class="classe-group-count">({{ grupo.posicoes|length }})</span>
+                        </div>
+                        <div class="classe-group-stats">
+                            <span>Valor total <strong>R$ {{ grupo.valor_total|floatformat:2 }}</strong></span>
+                            <span>% da carteira <strong>{{ grupo.percentual|floatformat:1 }}%</strong></span>
+                        </div>
+                    </div>
+                    <div class="classe-group-table-scroll">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Ativo</th>
+                                    <th>Quantidade</th>
+                                    <th>Preço médio</th>
+                                    <th>Valor investido</th>
+                                    <th>% da carteira</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for posicao in grupo.posicoes %}
+                                    <tr>
+                                        <td>{{ posicao.ativo.ticker }}</td>
+                                        <td>{{ posicao.quantidade|quantidade_fmt:posicao.ativo.classe }}</td>
+                                        <td>R$ {{ posicao.preco_medio|floatformat:2 }}</td>
+                                        <td>R$ {{ posicao.valor_investido|floatformat:2 }}</td>
+                                        <td>{{ posicao.percentual|floatformat:1 }}%</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            {% endfor %}
         {% else %}
             <div class="empty-panel">
                 <svg class="empty-illustration" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -70,4 +120,38 @@
 </div>
 
 {% include 'investments/_drawer_transacao.html' %}
+
+<div class="drawer-overlay"></div>
+<div id="drawer-info-rentabilidade" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-info-title">
+    <div class="drawer-header">
+        <h2 id="drawer-info-title">Como calculamos lucro e prejuízo</h2>
+        <button type="button" class="drawer-close" data-drawer-close aria-label="Fechar">&times;</button>
+    </div>
+    <div class="drawer-body">
+        <p style="margin-bottom: 16px;">
+            Estes cards ainda não têm dado real — o Dash Finance por enquanto só
+            conhece o <strong>preço médio</strong> de cada posição (quanto você
+            pagou), não a <strong>cotação atual</strong> do ativo no mercado.
+            Assim que a integração com a API de cotações entrar, eles passam a
+            calcular automaticamente:
+        </p>
+        <p style="margin-bottom: 16px;">
+            <strong>Rentabilidade de uma posição</strong> = (preço atual − preço
+            médio) ÷ preço médio. Positiva é lucro, negativa é prejuízo.
+        </p>
+        <p style="margin-bottom: 16px;">
+            <strong>Melhor posição / Pior posição</strong> = as posições com a
+            maior e a menor rentabilidade entre tudo que você tem em carteira
+            hoje.
+        </p>
+        <p>
+            <strong>Posições no lucro</strong> = quantas das suas posições
+            abertas têm rentabilidade positiva neste momento, sobre o total de
+            posições.
+        </p>
+    </div>
+    <div class="drawer-footer">
+        <button type="button" class="button ghost" data-drawer-close>Fechar</button>
+    </div>
+</div>
 {% endblock %}

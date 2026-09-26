@@ -3,10 +3,10 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render, redirect
 from django.views.decorators.http import require_POST
 
-from .charts import montar_grafico_alocacao, montar_grafico_evolucao
+from .charts import CORES_CLASSE, montar_grafico_alocacao, montar_grafico_evolucao
 from .forms import TransacaoForm, UserRegisterForm
 from .models import Transacao
-from .services import alocacao_por_classe, calcular_kpis, evolucao_mensal, posicoes_atuais
+from .services import alocacao_por_classe, calcular_kpis, evolucao_mensal, posicoes_por_classe
 
 
 @login_required(login_url='login')
@@ -47,10 +47,15 @@ def posicoes(request):
     else:
         form = TransacaoForm(usuario=request.user)
 
+    grupos = posicoes_por_classe(request.user)
+    for grupo in grupos:
+        grupo['cor'] = CORES_CLASSE[grupo['classe']]
+
     context = {
         'form': form,
         'drawer_open': drawer_open,
-        'posicoes': posicoes_atuais(request.user),
+        'grupos': grupos,
+        'kpis': calcular_kpis(request.user),
     }
     return render(request, 'investments/posicoes.html', context)
 

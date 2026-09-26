@@ -85,6 +85,38 @@ def posicoes_atuais(usuario):
     return resultado
 
 
+def posicoes_por_classe(usuario):
+    """Agrupa posicoes_atuais() por classe de ativo, na ordem fixa de Ativo.Classe.
+
+    Não recalcula posição — só reagrupa o que posicoes_atuais() já apurou, que
+    continua sendo a única fonte de verdade. `percentual` de cada posição
+    dentro do grupo é relativo à carteira inteira (mesma base do KPI e da
+    tela antiga), não ao total da classe.
+    """
+    posicoes = posicoes_atuais(usuario)
+    if not posicoes:
+        return []
+
+    total_carteira = sum((p['valor_investido'] for p in posicoes), Decimal('0'))
+
+    por_classe = {}
+    for p in posicoes:
+        classe = p['ativo'].classe
+        grupo = por_classe.setdefault(classe, {'classe': classe, 'posicoes': [], 'valor_total': Decimal('0')})
+        grupo['posicoes'].append(p)
+        grupo['valor_total'] += p['valor_investido']
+
+    ordem_fixa = [Ativo.Classe.ACAO, Ativo.Classe.FII, Ativo.Classe.CRIPTO, Ativo.Classe.RENDA_FIXA]
+    resultado = []
+    for classe in ordem_fixa:
+        grupo = por_classe.get(classe)
+        if grupo:
+            grupo['label'] = Ativo.Classe(classe).label
+            grupo['percentual'] = float(grupo['valor_total'] / total_carteira * 100) if total_carteira > 0 else 0.0
+            resultado.append(grupo)
+    return resultado
+
+
 def calcular_kpis(usuario):
     """Agrega as transações do usuário em KPIs para o dashboard.
 

@@ -1,4 +1,5 @@
 {% extends 'investments/base.html' %}
+{% load investments_extras %}
 
 {% block title %}Lançamentos - Dash Finance{% endblock %}
 
@@ -58,7 +59,7 @@
                                         <span class="trend down">Venda</span>
                                     {% endif %}
                                 </td>
-                                <td>{{ transacao.quantidade|floatformat:8 }}</td>
+                                <td>{{ transacao.quantidade|quantidade_fmt:transacao.ativo.classe }}</td>
                                 <td>R$ {{ transacao.preco_unitario|floatformat:2 }}</td>
                                 <td>R$ {{ transacao.corretagem_taxas|floatformat:2 }}</td>
                                 <td>R$ {{ transacao.valor_total|floatformat:2 }}</td>

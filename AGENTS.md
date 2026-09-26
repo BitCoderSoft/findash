@@ -39,21 +39,24 @@ no curto prazo), mas login/senha já existem para proteger os dados na máquina.
 dash_finance/          # projeto Django (settings, urls raiz, wsgi/asgi)
 investments/           # único app até agora
   models.py            # Ativo, Transacao, Provento (Provento ainda sem UI/uso)
-  services.py          # agregações puras em Python: KPIs, alocação por classe, evolução mensal
+  services.py          # agregações puras em Python: KPIs, posições (por ativo e por classe), evolução mensal
   charts.py            # monta a geometria SVG (barras + donut) a partir do que services.py calcula
-  forms.py             # UserRegisterForm + TransacaoForm (cria Ativo on-the-fly se ticker for novo)
-  views.py             # dashboard, transacoes (list+CRUD via drawer), transacao_excluir, register
-  urls.py              # '', 'transacoes/', 'transacoes/<pk>/excluir/', 'login/', 'logout/', 'register/'
+  forms.py             # UserRegisterForm + TransacaoForm (cria Ativo on-the-fly, bloqueia venda a descoberto)
+  views.py             # dashboard, posicoes, transacoes (list+CRUD via drawer), transacao_excluir, register
+  urls.py              # '', 'posicoes/', 'transacoes/', 'transacoes/<pk>/excluir/', 'login/', 'logout/', 'register/'
+  templatetags/
+    investments_extras.py   # filtro quantidade_fmt (inteiro pra Ação/FII, decimal enxuto pro resto)
   templates/investments/
-    base.html                 # template base (blocks: title, extra_css, content, extra_js) + drawer.js global
+    base.html                 # template base (blocks: title, extra_css, content, extra_js) + fonte serif + drawer.js global
     login.html                 # tela de login (layout split-screen)
     register.html               # tela de cadastro (mesmo layout)
     dashboard.html               # dashboard "Resumo": KPIs reais + gráfico de evolução + donut de alocação
+    posicoes.html                 # posições agrupadas por classe + cards de destaque (placeholder) + drawer explicativo
     transacoes.html               # tabela de lançamentos (CRUD) + botão "+ Novo lançamento"
-    _drawer_transacao.html         # partial do formulário de lançamento, incluído por dashboard.html e transacoes.html
+    _drawer_transacao.html         # partial do formulário de lançamento, incluído por dashboard/posicoes/transacoes.html
   static/investments/
     css/base.css         # design system único do projeto (ver abaixo)
-    js/drawer.js          # abrir/fechar drawer (data-drawer-open/close), foco, ESC, overlay — vanilla JS
+    js/drawer.js          # abrir/fechar drawer (data-drawer-open/close), foco, ESC, overlay — vanilla JS, genérico (funciona com qualquer par overlay+drawer por id, não só o de lançamento)
 manage.py
 requirements.txt       # dependências fixadas (manter atualizado com pip freeze)
 .gitignore
@@ -83,13 +86,23 @@ dentro de `investments`; ainda não foi necessário quebrar em apps menores.
   venda. É o método usado no mercado brasileiro para apurar preço médio de
   ações — uma soma ingênua de fluxo de caixa (comprou soma, vendeu subtrai pelo
   valor da venda) dá preço médio errado depois da primeira venda parcial. Essa
-  função é a única fonte de verdade: `posicoes_atuais`, `calcular_kpis` e
-  `alocacao_por_classe` (dashboard e tela de Posições) todos partem dela — não
-  reimplementar o cálculo de posição em outro lugar.
+  função é a única fonte de verdade: `posicoes_atuais`, `posicoes_por_classe`,
+  `calcular_kpis` e `alocacao_por_classe` todos partem dela — não reimplementar
+  o cálculo de posição em outro lugar. `posicoes_por_classe` só reagrupa o
+  retorno de `posicoes_atuais` por `Ativo.Classe` (ordem fixa), não recalcula
+  nada; é o que alimenta a tela de Posições (`posicoes.html`) agrupada.
 - `evolucao_mensal` usa a mesma lógica de preço médio para acumular mês a mês,
   mas soma o delta de **todas** as transações, mesmo de um ativo cuja posição
   ficou negativa (venda a descoberto) — hoje bloqueada no form (ver abaixo),
   então na prática isso só importava para dado legado/inconsistente.
+- **Quantidade fracionada só faz sentido pra Cripto/Renda fixa** — a B3 não
+  fraciona ação/cota de FII (mercado fracionário à parte, fora do escopo).
+  A exibição respeita isso via o filtro de template `quantidade_fmt`
+  (`templatetags/investments_extras.py`): inteiro pra Ação/FII, decimal sem
+  zero à direita pro resto. Usado em `posicoes.html` e `transacoes.html` como
+  `{{ x.quantidade|quantidade_fmt:x.ativo.classe }}` — **não voltar a usar
+  `floatformat:8` direto** nessas duas tabelas. Isso é só exibição: o form
+  ainda não valida/impede quantidade fracionada em Ação/FII (ver débitos).
 
 ## Rotas e autenticação
 
@@ -111,9 +124,17 @@ dentro de `investments`; ainda não foi necessário quebrar em apps menores.
 
 ## Fluxo do drawer de lançamento
 
-- `_drawer_transacao.html` é um partial incluído tanto por `dashboard.html`
-  quanto por `transacoes.html` — mesmo formulário (`TransacaoForm`), mesma
-  marcação, para não duplicar o CRUD de transação nas duas telas.
+- `_drawer_transacao.html` é um partial incluído por `dashboard.html`,
+  `posicoes.html` e `transacoes.html` — mesmo formulário (`TransacaoForm`),
+  mesma marcação, para não duplicar o CRUD de transação nas três telas.
+- `posicoes.html` tem um **segundo** drawer, inline no próprio template (não
+  é partial, é específico dessa tela): `#drawer-info-rentabilidade`, aberto
+  pelos botões `.info-button` dos cards "Destaques da carteira" / "Posições
+  no lucro". `drawer.js` é genérico o bastante pra isso funcionar sem
+  nenhuma mudança — ele acha o drawer por id e o overlay pelo
+  `previousElementSibling`, então qualquer novo par `.drawer-overlay` +
+  `.drawer` (nessa ordem, como irmãos no DOM) já funciona com
+  `data-drawer-open`/`data-drawer-close` de graça.
 - Abertura/fechamento é 100% client-side via `drawer.js` (atributos
   `data-drawer-open="drawer-transacao"` / `data-drawer-close`), com overlay,
   `inert` no conteúdo da página, trava de scroll, foco no primeiro campo ao
@@ -194,22 +215,23 @@ consistência em qualquer tela nova:
 
 - `SECRET_KEY` hardcoded em `settings.py` e `DEBUG = True` — aceitável enquanto for
   uso 100% local, mas não deve ir para produção/deploy sem revisar.
-- `LANGUAGE_CODE = 'en-us'` em `settings.py`, mas toda a UI e mensagens são em
-  pt-BR — inconsistência menor, não corrigida ainda.
 - Sem testes (`tests.py` vazio) e sem CI configurado.
 - `ALLOWED_HOSTS = []` — só serve em localhost por enquanto.
 - KPIs de "Lucro/Prejuízo" e "Rentabilidade" no dashboard são placeholders (`—`)
-  porque dependem de cotação de mercado real, ainda não integrada.
+  porque dependem de cotação de mercado real, ainda não integrada. Mesma coisa
+  pros cards "Destaques da carteira" (melhor/pior posição) e "Posições no
+  lucro" na tela de Posições — UI e drawer explicativo já prontos
+  (`drawer-info-rentabilidade` em `posicoes.html`), só falta plugar a API.
 - `Provento` existe no model mas não tem form/view/tela — não entra em nenhum
   KPI ou gráfico ainda.
-- Quantidade é exibida com 8 casas decimais fixas em toda a UI (tabela e drawer
-  de edição), mesmo para ativos que não precisam dessa precisão (ex.: ações
-  compradas em unidades inteiras) — pensado para cripto, mas polui a leitura de
-  quantidades "redondas".
 - Sem cadastro/edição de `Ativo` fora do drawer de lançamento — se a classe for
   informada errada no primeiro lançamento de um ticker novo, só dá pra corrigir
   pelo Django admin.
 - Editar/excluir uma transação é definitivo, sem histórico de alteração.
+- Formulário não impede quantidade fracionada em Ação/FII (ex.: comprar 10,5
+  PETR4) — só a exibição já respeita a regra da B3 (ver seção de formatação de
+  quantidade); validar isso no `TransacaoForm.clean_quantidade` ainda não foi
+  pedido.
 
 ## Roadmap combinado com o usuário (ordem)
 
