@@ -57,7 +57,7 @@ investments/           # único app até agora
     base.html                 # template base (blocks: title, extra_css, content, extra_js) + fonte serif + drawer.js global
     login.html                 # tela de login (layout split-screen)
     register.html               # tela de cadastro (mesmo layout)
-    dashboard.html               # dashboard "Resumo": KPIs reais + gráfico de evolução + donut de alocação
+    dashboard.html               # dashboard "Resumo": KPIs reais (incl. Lucro/Prejuízo e Rentabilidade via brapi) + gráfico de evolução + donut de alocação
     posicoes.html                 # posições agrupadas por classe, preço atual/rentabilidade (brapi), badge de logo, cards de destaque + drawer explicativo
     transacoes.html               # tabela de lançamentos (CRUD) + botão "+ Novo lançamento"
     _drawer_transacao.html         # partial do formulário de lançamento, incluído por dashboard/posicoes/transacoes.html
@@ -140,33 +140,47 @@ de como isso se encaixa no projeto.
 
 - `investments/market_data.py` é a única parte do projeto que fala com o
   mundo externo (HTTP). `services.py` continua sem I/O de rede — a busca de
-  cotação acontece na view (`views.posicoes`), e o resultado (um dict
-  `symbol -> CotacaoAtivo`) é passado pra `services.aplicar_cotacoes(grupos,
-  cotacoes)`, que só enriquece o que `posicoes_por_classe` já calculou. Não
-  botar chamada de rede dentro de `services.py`.
+  cotação acontece na view (`views.dashboard`/`views.posicoes`), e o
+  resultado (um dict `symbol -> CotacaoAtivo`) é passado pra
+  `services.aplicar_cotacoes_lista(posicoes, cotacoes)` (lista flat — usada
+  pelo Resumo) ou `services.aplicar_cotacoes(grupos, cotacoes)` (agrupada
+  por classe — usada por Posições; por baixo dos panos chama a de cima pra
+  cada grupo). Não botar chamada de rede dentro de `services.py`.
 - **Uma requisição HTTP por ticker, não em lote** — o plano da brapi usado
   aqui só libera 1 ativo por requisição (testado contra a API real; a doc
   pública sugere que `symbols=A,B,C` funciona, mas não nesse plano). Ver
   docs/brapi.md pro erro exato. Se isso mudar (upgrade de plano), dá pra
   simplificar `buscar_cotacoes` de volta pra uma chamada combinada — mas
   revalidar antes de assumir.
-- **Sem cache** — decisão explícita do usuário (cota de 15.000 req/dia,
-  folga de sobra). Isso significa N requisições sequenciais síncronas toda
-  vez que `/posicoes/` carrega (N = nº de tickers distintos na carteira),
-  com a latência de rede somada. Se isso incomodar ou a carteira crescer
-  muito, cache com TTL curto (alguns minutos) é o próximo passo natural —
-  não implementar isso preventivamente sem o usuário pedir.
+- **Cache de 5 minutos por símbolo** (`market_data.CACHE_TTL_SEGUNDOS`, via
+  `django.core.cache`, backend `LocMemCache` configurado em
+  `settings.CACHES`) — decisão explícita do usuário depois de validar sem
+  cache primeiro (cota de 15.000 req/dia dava folga de sobra, mas a
+  latência de N requisições sequenciais por carregamento de página
+  incomodou). Cache é por símbolo, não por usuário/página — Resumo e
+  Posições pedindo o mesmo ticker na mesma janela reaproveitam a mesma
+  entrada. `LocMemCache` é em processo: reseta ao reiniciar o `runserver` e
+  não é compartilhado entre processos — se este projeto rodar
+  multi-processo um dia, trocar por um backend compartilhado (Redis etc.).
 - **Falha parcial não quebra a página**: `buscar_cotacoes` omite do dict
   qualquer ticker que falhar (inválido, erro de rede pontual) em vez de
-  levantar erro; `aplicar_cotacoes` trata ausência de cotação como `None` em
-  todos os campos derivados (nunca `KeyError`/crash). Só uma falha "de
-  configuração" (token ausente) levanta `BrapiError` até a view, que vira
-  `messages.warning` — a página sempre renderiza, na pior das hipóteses com
-  os placeholders de antes da integração.
+  levantar erro; `aplicar_cotacoes`/`aplicar_cotacoes_lista` tratam ausência
+  de cotação como `None` em todos os campos derivados (nunca
+  `KeyError`/crash). Só uma falha "de configuração" (token ausente) levanta
+  `BrapiError` até a view, que vira `messages.warning` — a página sempre
+  renderiza, na pior das hipóteses com os placeholders de antes da
+  integração.
 - **Só cobre Ação/FII.** Cripto e Renda fixa não têm ticker na B3, então
-  nunca vêm da brapi — `rentabilidade_percentual`/`preco_atual` ficam `None`
-  pra essas posições por design, não é bug. `services.destaques_carteira`
-  já desconta isso (`avaliadas`/`sem_cotacao` no retorno).
+  nunca vêm da brapi — `rentabilidade_percentual`/`preco_atual`/`valor_atual`
+  ficam `None` por design, não é bug. `services.destaques_carteira` (Posições)
+  e `services.calcular_kpis_mercado` (Resumo) já descontam isso
+  (`avaliadas`/`sem_cotacao` no retorno de ambas).
+- **KPIs do Resumo**: `calcular_kpis_mercado(posicoes)` retorna
+  `lucro_prejuizo`/`rentabilidade` com as **mesmas chaves** que os
+  placeholders de `calcular_kpis()`, de propósito — a view faz
+  `kpis.update(calcular_kpis_mercado(posicoes))` pra sobrescrever, não pra
+  coexistir com nome de chave diferente. Se renomear uma das duas, renomear
+  as duas.
 - **Badge de logo**: `CotacaoAtivo.logo_url` vem da API, mas nem todo ticker
   tem ícone hospedado de verdade (ex.: alguns FIIs retornam uma `logourl`
   que dá 404 no navegador). O fallback (iniciais do ticker em
@@ -300,21 +314,19 @@ consistência em qualquer tela nova:
 6. **Proventos (dividendo/JCP/rendimento) — adiado por decisão do usuário**,
    não é prioridade agora. Quando retomar: model já existe, falta form + tela
    no mesmo padrão de `transacoes.html` (tabela + drawer).
-7. ~~Integração com a API de cotações — tela de Posições~~ — feito: preço
+7. ~~Integração com a API de cotações — Posições e Resumo~~ — feito: preço
    atual, rentabilidade por posição, badge com logo do ativo (com fallback
-   pras iniciais do ticker quando a imagem falha), e os cards "Destaques da
-   carteira"/"Posições no lucro" com dado real (`services.aplicar_cotacoes`/
-   `destaques_carteira`, ver seção própria abaixo). **Sem cache ainda —
-   decisão explícita do usuário** (plano da brapi dele tem 15.000
-   requisições/dia, folga de sobra pro volume de uma carteira pessoal;
-   reconsiderar se a carteira crescer muito ou a latência incomodar).
-   Só cobre Ação/FII (é o que a brapi cobre) — Cripto/Renda fixa continuam
-   com rentabilidade `—`, sem fonte de cotação plugada.
-   **Falta ainda**: os KPIs de Lucro/Prejuízo e Rentabilidade no Resumo (hoje
-   só a tela de Posições tem dado real; dá pra somar o que
-   `aplicar_cotacoes` já calcula por posição em vez de reimplementar). Ao
-   chegar em gráficos novos derivados disso (ex.: comparação com CDI/IBOV),
-   usar a skill `dataviz` deste ambiente.
+   pras iniciais do ticker quando a imagem falha), cards "Destaques da
+   carteira"/"Posições no lucro" na tela de Posições, e KPIs de
+   Lucro/Prejuízo e Rentabilidade reais no Resumo — tudo com dado real
+   (`services.aplicar_cotacoes`/`aplicar_cotacoes_lista`/
+   `destaques_carteira`/`calcular_kpis_mercado`, ver seção própria acima).
+   **Cache de 5 minutos por símbolo** (decisão do usuário depois de testar
+   sem cache e sentir a latência de N requisições sequenciais por
+   carregamento de página). Só cobre Ação/FII (é o que a brapi cobre) —
+   Cripto/Renda fixa continuam com rentabilidade `—`, sem fonte de cotação
+   plugada. Ao chegar em gráficos novos derivados disso (ex.: comparação com
+   CDI/IBOV), usar a skill `dataviz` deste ambiente.
 8. Diferenciação visual do design atual, que partiu de um print do Investidor10
    e ainda se parece bastante com ele (cor de acento, navegação em abas
    horizontais, split-screen do login). Ideias já discutidas com o usuário,

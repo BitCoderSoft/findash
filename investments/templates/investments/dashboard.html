@@ -120,13 +120,31 @@
             </div>
             <div class="kpi-card">
                 <span class="kpi-label">Lucro / Prejuízo</span>
-                <span class="kpi-value">—</span>
-                <span class="trend neutral">requer cotação de mercado</span>
+                {% if kpis.lucro_prejuizo is not None %}
+                    <span class="kpi-value {% if kpis.lucro_prejuizo > 0 %}up{% else %}down{% endif %}">R$ {{ kpis.lucro_prejuizo|floatformat:2 }}</span>
+                    {% if kpis.lucro_prejuizo > 0 %}
+                        <span class="trend up">acima do custo</span>
+                    {% else %}
+                        <span class="trend down">abaixo do custo</span>
+                    {% endif %}
+                {% else %}
+                    <span class="kpi-value">—</span>
+                    <span class="trend neutral">requer cotação de mercado</span>
+                {% endif %}
             </div>
             <div class="kpi-card">
                 <span class="kpi-label">Rentabilidade</span>
-                <span class="kpi-value">—</span>
-                <span class="trend neutral">requer cotação de mercado</span>
+                {% if kpis.rentabilidade is not None %}
+                    <span class="kpi-value {% if kpis.rentabilidade > 0 %}up{% else %}down{% endif %}">{{ kpis.rentabilidade|floatformat:2 }}%</span>
+                    {% if kpis.rentabilidade > 0 %}
+                        <span class="trend up">valorização</span>
+                    {% else %}
+                        <span class="trend down">desvalorização</span>
+                    {% endif %}
+                {% else %}
+                    <span class="kpi-value">—</span>
+                    <span class="trend neutral">requer cotação de mercado</span>
+                {% endif %}
             </div>
             <div class="kpi-card">
                 <span class="kpi-label">Posições</span>

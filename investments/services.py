@@ -117,30 +117,70 @@ def posicoes_por_classe(usuario):
     return resultado
 
 
-def aplicar_cotacoes(grupos, cotacoes):
-    """Enriquece os grupos de posicoes_por_classe() com cotação de mercado.
+def aplicar_cotacoes_lista(posicoes, cotacoes):
+    """Enriquece uma lista flat de posições (retorno de posicoes_atuais()) com
+    cotação de mercado.
 
     `cotacoes` é o retorno de `market_data.buscar_cotacoes()` — este módulo
     continua sem fazer chamada de rede, só aplica o que já foi buscado (busca
     é responsabilidade da view). Cada posição ganha `cotacao`, `preco_atual`,
-    `rentabilidade_percentual` e `lucro`; ficam `None` quando o ticker não tem
-    cotação disponível (cripto/renda fixa hoje não têm fonte plugada, ou a
-    brapi não respondeu) — nunca levanta erro por posição individual.
+    `valor_atual` (preço atual × quantidade), `rentabilidade_percentual` e
+    `lucro`; ficam `None` quando o ticker não tem cotação disponível
+    (cripto/renda fixa hoje não têm fonte plugada, ou a brapi não respondeu)
+    — nunca levanta erro por posição individual.
     """
+    for p in posicoes:
+        cot = cotacoes.get(p['ativo'].ticker)
+        if cot and p['preco_medio'] > 0:
+            p['cotacao'] = cot
+            p['preco_atual'] = cot.preco_atual
+            p['valor_atual'] = cot.preco_atual * p['quantidade']
+            p['rentabilidade_percentual'] = float((cot.preco_atual - p['preco_medio']) / p['preco_medio'] * 100)
+            p['lucro'] = p['rentabilidade_percentual'] > 0
+        else:
+            p['cotacao'] = None
+            p['preco_atual'] = None
+            p['valor_atual'] = None
+            p['rentabilidade_percentual'] = None
+            p['lucro'] = None
+    return posicoes
+
+
+def aplicar_cotacoes(grupos, cotacoes):
+    """Mesma coisa que aplicar_cotacoes_lista(), mas para os grupos de
+    posicoes_por_classe() (cada grupo tem uma lista `posicoes` por dentro)."""
     for grupo in grupos:
-        for p in grupo['posicoes']:
-            cot = cotacoes.get(p['ativo'].ticker)
-            if cot and p['preco_medio'] > 0:
-                p['cotacao'] = cot
-                p['preco_atual'] = cot.preco_atual
-                p['rentabilidade_percentual'] = float((cot.preco_atual - p['preco_medio']) / p['preco_medio'] * 100)
-                p['lucro'] = p['rentabilidade_percentual'] > 0
-            else:
-                p['cotacao'] = None
-                p['preco_atual'] = None
-                p['rentabilidade_percentual'] = None
-                p['lucro'] = None
+        aplicar_cotacoes_lista(grupo['posicoes'], cotacoes)
     return grupos
+
+
+def calcular_kpis_mercado(posicoes):
+    """Lucro/Prejuízo e rentabilidade agregados, só sobre posições avaliadas
+    (com cotação — ver aplicar_cotacoes_lista, chamar depois dela).
+
+    Não é persistido em `calcular_kpis()` de propósito: aquela função nunca
+    faz I/O de rede (é chamada em vários lugares, inclusive sem cotação
+    disponível); esta aqui é o complemento que só faz sentido quando o
+    chamador já buscou cotação. Chaves (`lucro_prejuizo`, `rentabilidade`) de
+    propósito iguais às de `calcular_kpis()` — feito pra sobrescrever via
+    `kpis.update(calcular_kpis_mercado(...))`, não pra coexistir com chave
+    diferente.
+    """
+    avaliadas = [p for p in posicoes if p['rentabilidade_percentual'] is not None]
+    base = {'avaliadas': len(avaliadas), 'sem_cotacao': len(posicoes) - len(avaliadas)}
+
+    if not avaliadas:
+        return {**base, 'lucro_prejuizo': None, 'rentabilidade': None}
+
+    valor_investido = sum((p['valor_investido'] for p in avaliadas), Decimal('0'))
+    valor_atual = sum((p['valor_atual'] for p in avaliadas), Decimal('0'))
+    lucro_prejuizo = valor_atual - valor_investido
+
+    return {
+        **base,
+        'lucro_prejuizo': lucro_prejuizo,
+        'rentabilidade': float(lucro_prejuizo / valor_investido * 100) if valor_investido > 0 else 0.0,
+    }
 
 
 def destaques_carteira(grupos):

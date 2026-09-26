@@ -10,9 +10,12 @@ from .models import Transacao
 from .services import (
     alocacao_por_classe,
     aplicar_cotacoes,
+    aplicar_cotacoes_lista,
     calcular_kpis,
+    calcular_kpis_mercado,
     destaques_carteira,
     evolucao_mensal,
+    posicoes_atuais,
     posicoes_por_classe,
 )
 
@@ -31,10 +34,24 @@ def dashboard(request):
     else:
         form = TransacaoForm(usuario=request.user)
 
+    posicoes = posicoes_atuais(request.user)
+    tickers = [p['ativo'].ticker for p in posicoes]
+    cotacoes = {}
+    if tickers:
+        try:
+            cotacoes = buscar_cotacoes(tickers)
+        except BrapiError as exc:
+            messages.warning(request, f'Não foi possível buscar cotação de mercado agora: {exc}')
+
+    aplicar_cotacoes_lista(posicoes, cotacoes)
+
+    kpis = calcular_kpis(request.user)
+    kpis.update(calcular_kpis_mercado(posicoes))
+
     context = {
         'form': form,
         'drawer_open': drawer_open,
-        'kpis': calcular_kpis(request.user),
+        'kpis': kpis,
         'evolucao_chart': montar_grafico_evolucao(evolucao_mensal(request.user)),
         'alocacao_chart': montar_grafico_alocacao(alocacao_por_classe(request.user)),
     }

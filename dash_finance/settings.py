@@ -81,6 +81,20 @@ LOGOUT_REDIRECT_URL = 'login'
 WSGI_APPLICATION = 'dash_finance.wsgi.application'
 
 
+# Cache — usado só pelo cliente da brapi (investments/market_data.py) pra
+# não reconsultar cotação de mercado a cada request. LocMemCache: em
+# processo, local, zero infra extra — condizente com "uso local,
+# single-tenant" (ver AGENTS.md). Reseta ao reiniciar o `runserver` e não é
+# compartilhado entre processos/workers — se este projeto um dia rodar
+# multi-processo, trocar por um backend compartilhado (ex.: Redis).
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'dash-finance-local-cache',
+    }
+}
+
+
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 

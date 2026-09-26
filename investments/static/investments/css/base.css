@@ -494,6 +494,14 @@ a.nav-item:hover {
     font-size: var(--text-3xl);
 }
 
+.kpi-value.up {
+    color: var(--color-success);
+}
+
+.kpi-value.down {
+    color: var(--color-danger);
+}
+
 @media (max-width: 640px) {
     .kpi-card.hero {
         grid-column: span 1;

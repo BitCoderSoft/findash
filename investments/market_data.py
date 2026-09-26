@@ -12,9 +12,15 @@ from decimal import Decimal, InvalidOperation
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 
 BRAPI_QUOTE_URL = 'https://brapi.dev/api/v2/stocks/quote'
 TIMEOUT_SEGUNDOS = 10
+
+# 5 minutos: cotação de mercado não muda tão rápido a ponto de precisar de
+# tempo real num app de controle pessoal, e isso evita N requisições
+# sequenciais (uma por ticker distinto) a cada carregamento de página.
+CACHE_TTL_SEGUNDOS = 300
 
 
 class BrapiError(Exception):
@@ -52,20 +58,20 @@ def buscar_cotacao(symbol: str) -> CotacaoAtivo:
 
 
 def buscar_cotacoes(symbols: list[str]) -> dict[str, CotacaoAtivo]:
-    """Busca a cotação de vários tickers — uma requisição HTTP por símbolo.
+    """Busca a cotação de vários tickers — uma requisição HTTP por símbolo
+    (com cache), não pedido combinado.
 
     A brapi documenta `symbols` separados por vírgula no mesmo request, mas
     **o plano gratuito usado neste projeto permite só 1 ativo por
     requisição** (validado contra a API real: pedir vários de uma vez retorna
     400 "Seu plano permite no máximo 1 ativo(s) por requisição" — planos
-    pagos liberam mais). Por isso isso itera e faz uma chamada por symbol, em
-    vez de uma única combinada.
+    pagos liberam mais). Por isso isso itera e faz uma chamada por symbol.
 
-    Sem cache por enquanto (decisão explícita do usuário — cota de 15.000
-    req/dia do plano dele é folga de sobra pro volume de uma carteira
-    pessoal), mas isso significa N requisições sequenciais por carregamento
-    de página — se a carteira crescer muito ou a latência incomodar, cache
-    com TTL curto é o próximo passo natural (ver AGENTS.md).
+    Cada símbolo é cacheado por `CACHE_TTL_SEGUNDOS` (`django.core.cache`,
+    backend padrão do projeto — local, em processo, ver `settings.CACHES`).
+    O cache é por símbolo, não por usuário/página: se dois usuários (ou
+    Resumo e Posições na mesma visita) pedirem o mesmo ticker dentro da
+    janela, só a primeira chamada bate na brapi de verdade.
 
     Retorna dict symbol -> CotacaoAtivo. Um símbolo que falhar (inválido,
     erro pontual de rede, resposta não-2xx) é só omitido do retorno — não
@@ -80,6 +86,12 @@ def buscar_cotacoes(symbols: list[str]) -> dict[str, CotacaoAtivo]:
 
     cotacoes = {}
     for symbol in symbols:
+        chave_cache = f'brapi:quote:{symbol}'
+        cotacao_cacheada = cache.get(chave_cache)
+        if cotacao_cacheada is not None:
+            cotacoes[symbol] = cotacao_cacheada
+            continue
+
         try:
             resposta = requests.get(
                 BRAPI_QUOTE_URL,
@@ -102,10 +114,9 @@ def buscar_cotacoes(symbols: list[str]) -> dict[str, CotacaoAtivo]:
         if not data:
             continue
 
-        symbol_resp = item.get('symbol') or item.get('requestedSymbol') or symbol
-        cotacoes[symbol_resp] = CotacaoAtivo(
-            symbol=symbol_resp,
-            nome=data.get('longName') or data.get('shortName') or symbol_resp,
+        cotacao = CotacaoAtivo(
+            symbol=symbol,
+            nome=data.get('longName') or data.get('shortName') or symbol,
             moeda=data.get('currency', 'BRL'),
             preco_atual=_para_decimal(data.get('regularMarketPrice')),
             variacao=_para_decimal(data.get('regularMarketChange')),
@@ -113,6 +124,8 @@ def buscar_cotacoes(symbols: list[str]) -> dict[str, CotacaoAtivo]:
             atualizado_em=_parse_datetime(data.get('regularMarketTime')),
             logo_url=data.get('logourl') or None,
         )
+        cache.set(chave_cache, cotacao, CACHE_TTL_SEGUNDOS)
+        cotacoes[symbol] = cotacao
     return cotacoes
 
 
