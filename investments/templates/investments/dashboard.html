@@ -114,9 +114,13 @@
 
         <div class="kpi-grid">
             <div class="kpi-card hero">
-                <span class="kpi-label">Valor investido</span>
-                <span class="kpi-value">R$ {{ kpis.valor_investido|floatformat:2 }}</span>
-                <span class="trend neutral">custo de aquisição</span>
+                <span class="kpi-label">Saldo atual</span>
+                {% if kpis.lucro_prejuizo is not None %}
+                    <span class="kpi-value {% if kpis.lucro_prejuizo > 0 %}up{% else %}down{% endif %}">R$ {{ kpis.saldo_atual|floatformat:2 }}</span>
+                {% else %}
+                    <span class="kpi-value">R$ {{ kpis.saldo_atual|floatformat:2 }}</span>
+                {% endif %}
+                <span class="trend neutral" style="color: var(--color-text);">custo de aquisição: R$ {{ kpis.valor_investido|floatformat:2 }}</span>
             </div>
             <div class="kpi-card">
                 <span class="kpi-label">Lucro / Prejuízo</span>

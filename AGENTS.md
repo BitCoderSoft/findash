@@ -181,6 +181,13 @@ de como isso se encaixa no projeto.
   `kpis.update(calcular_kpis_mercado(posicoes))` pra sobrescrever, não pra
   coexistir com nome de chave diferente. Se renomear uma das duas, renomear
   as duas.
+- **Card hero do Resumo é "Saldo atual", não "Valor investido"** — mudou de
+  propósito a pedido do usuário: o número grande agora é
+  `kpis['saldo_atual']` (calculado na view: `valor_investido +
+  lucro_prejuizo`, cai pra só `valor_investido` quando `lucro_prejuizo` é
+  `None`), colorido verde/vermelho pelo sinal do lucro. O antigo "custo de
+  aquisição" virou legenda pequena embaixo (`custo de aquisição: R$ X`), não
+  sumiu — só deixou de ser o número em destaque.
 - **Badge de logo**: `CotacaoAtivo.logo_url` vem da API, mas nem todo ticker
   tem ícone hospedado de verdade (ex.: alguns FIIs retornam uma `logourl`
   que dá 404 no navegador). O fallback (iniciais do ticker em

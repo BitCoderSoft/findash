@@ -47,6 +47,10 @@ def dashboard(request):
 
     kpis = calcular_kpis(request.user)
     kpis.update(calcular_kpis_mercado(posicoes))
+    if kpis['lucro_prejuizo'] is not None:
+        kpis['saldo_atual'] = kpis['valor_investido'] + kpis['lucro_prejuizo']
+    else:
+        kpis['saldo_atual'] = kpis['valor_investido']
 
     context = {
         'form': form,
