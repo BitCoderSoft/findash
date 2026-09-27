@@ -17,6 +17,10 @@ media/
 # Environment / secrets
 .env
 
+# Clone standalone HTML/CSS/JS (localStorage + token da brapi hardcoded de
+# propósito — uso pessoal local, nunca deve ir pro repositório)
+dash-finance.html
+
 # Editor / OS
 .vscode/
 .idea/
