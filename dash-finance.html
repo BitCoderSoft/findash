@@ -1805,6 +1805,9 @@ var HIST_CACHE_KEY = 'DASH_FINANCE_HIST_CACHE_V1';
 var RANKING_CACHE_KEY = 'DASH_FINANCE_RANKING_CACHE_V1';
 // [CDI v1 · 11/10/2026] cache diário do CDI — uma chamada por dia por dispositivo
 var CDI_CACHE_KEY = 'DASH_FINANCE_CDI_CACHE_V1';
+// [RENT v2] cache de preços mensais históricos por ticker (24h — dado imutável)
+var HIST_MENSAL_CACHE_KEY = 'DASH_FINANCE_HIST_MENSAL_V1';
+var HIST_MENSAL_TTL_MS = 24 * 60 * 60 * 1000;
 // BCB SGS série 12 = CDI over diário (API pública, sem autenticação)
 var BCB_CDI_LATEST_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json';
 var BCB_CDI_PERIODO_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json';
@@ -3151,6 +3154,38 @@ function setCachedHistorico(chave, pontos) {
     } catch (e) { /* localStorage cheio/bloqueado — segue sem cache */ }
 }
 
+// [RENT v2] Cache de preços mensais históricos por ticker.
+// Chave no cache: "B3:<TICKER>" ou "CRIPTO:<TICKER>" pra não misturar fontes.
+// Valor: { "2026-09": 49.12, "2026-08": 45.02, ... }  (anoMes → close)
+function getCachedHistoricoMensal(chave) {
+    try {
+        var raw = armazem.get(HIST_MENSAL_CACHE_KEY);
+        if (!raw) return null;
+        var cache = JSON.parse(raw);
+        var entry = cache[chave];
+        if (!entry || Date.now() > entry.expiresAt) return null;
+        return entry.precos;
+    } catch (e) { return null; }
+}
+
+function setCachedHistoricoMensal(chave, precos) {
+    try {
+        var raw = armazem.get(HIST_MENSAL_CACHE_KEY);
+        var cache = raw ? JSON.parse(raw) : {};
+        cache[chave] = { precos: precos, expiresAt: Date.now() + HIST_MENSAL_TTL_MS };
+        armazem.set(HIST_MENSAL_CACHE_KEY, JSON.stringify(cache));
+    } catch (e) { /* localStorage cheio/bloqueado — segue */ }
+}
+
+// [RENT v2] Converte o campo `date` da brapi (timestamp em segundos, confirmado
+// em teste de 11/10/2026) para "YYYY-MM". Também aceita string ISO como
+// fallback defensivo.
+function normalizarDataBrapi(ts) {
+    var ms = (typeof ts === 'string') ? Date.parse(ts) : (ts > 1e12 ? ts : ts * 1000);
+    if (!ms || isNaN(ms)) return null;
+    return new Date(ms).toISOString().slice(0, 7);
+}
+
 // Histórico de fechamento diário — endpoint /stocks/historical da brapi.
 // Descoberto via o assistente do dashboard da brapi (não estava óbvio na doc
 // pública): aceita `range`/`interval` (ex.: "1mo"/"1d" = ~20 pregões, um por
@@ -3656,6 +3691,92 @@ function buscarHistoricoDoAtivo(ticker) {
     var ativo = buscarAtivoPorTicker(ticker);
     if (ativo && ativo.classe === 'CRIPTO') return buscarHistoricoCripto(ticker);
     return buscarHistorico(ticker, '1mo', '1d');
+}
+
+/* =================================================================
+   PREÇOS MENSAIS HISTÓRICOS [RENT v2 · 11/10/2026]
+   Usados por patrimonioNaData() para reconstruir o valor de mercado
+   da carteira no último dia de cada mês fechado.
+
+   Brapi confirmado: range=2y&interval=1mo → HTTP 200 no plano atual.
+   date = timestamp em segundos = primeiro dia útil do mês.
+   close = fechamento do ÚLTIMO dia útil do mês (é o que precisamos).
+   ================================================================= */
+
+// B3: uma chamada range=2y/1mo por ticker → mapa { "2026-09": 49.12, ... }
+function buscarPrecosMensaisB3(ticker) {
+    var chave = 'B3:' + ticker;
+    var cached = getCachedHistoricoMensal(chave);
+    if (cached) return Promise.resolve(cached);
+
+    var url = BRAPI_HISTORICAL_URL + '?symbols=' + encodeURIComponent(ticker) + '&range=2y&interval=1mo';
+    return brapiFetch(url, { headers: { Authorization: 'Bearer ' + BRAPI_TOKEN } })
+        .then(function (resp) { return resp.ok ? resp.json() : null; })
+        .then(function (payload) {
+            if (!payload) return {};
+            var item = (payload.results || [])[0];
+            var lista = (item && item.data && item.data.historicalDataPrice) || [];
+            var mapa = {};
+            lista.forEach(function (p) {
+                var am = normalizarDataBrapi(p.date);
+                if (am && p.close) mapa[am] = p.close;
+            });
+            setCachedHistoricoMensal(chave, mapa);
+            return mapa;
+        })
+        .catch(function () { return {}; });
+}
+
+// Cripto: Binance klines mensais (interval=1M, limit=25). Mesmo mecanismo
+// de par BRL/USDT×USDTBRL de buscarHistoricoCripto, mas granularidade mensal.
+function buscarPrecosMensaisCripto(ticker) {
+    var chave = 'CRIPTO:' + ticker;
+    var cached = getCachedHistoricoMensal(chave);
+    if (cached) return Promise.resolve(cached);
+
+    var token = tokenCripto(ticker);
+    return resolverParesCripto([token]).then(function (pares) {
+        var r = pares[token];
+        if (!r) return {};
+
+        var par = r.brl || (r.usdt ? r.usdt : null);
+        var viaUsdt = !r.brl && !!r.usdt;
+        if (!par) return {};
+
+        var base = '/api/v3/klines?interval=1M&limit=25&symbol=';
+        var pedidos = [binanceGet(base + par)];
+        if (viaUsdt) pedidos.push(binanceGet(base + 'USDTBRL'));
+
+        return Promise.all(pedidos).then(function (k) {
+            var dolarPorMes = {};
+            if (k[1]) k[1].forEach(function (c) {
+                var am = new Date(c[0]).toISOString().slice(0, 7);
+                dolarPorMes[am] = Number(c[4]);
+            });
+
+            var mapa = {};
+            (k[0] || []).forEach(function (c) {
+                var am = new Date(c[0]).toISOString().slice(0, 7);
+                var close = Number(c[4]);
+                if (viaUsdt) {
+                    var taxa = dolarPorMes[am];
+                    if (!taxa) return;
+                    close = close * taxa;
+                }
+                if (am && close > 0) mapa[am] = close;
+            });
+
+            setCachedHistoricoMensal(chave, mapa);
+            return mapa;
+        });
+    }).catch(function () { return {}; });
+}
+
+// Roteador: decide a fonte pelo campo classe do ativo (mesmo padrão de buscarCotacoes)
+function buscarPrecosMensais(ticker, classe) {
+    if (classe === 'CRIPTO') return buscarPrecosMensaisCripto(ticker);
+    if (classe === 'RENDA_FIXA') return Promise.resolve({});
+    return buscarPrecosMensaisB3(ticker);
 }
 
 /* =================================================================
@@ -4815,75 +4936,196 @@ function buscarCDIMesFechado(anoMes) {
 }
 
 // Calcula custo acumulado de um usuário até (inclusive) uma data ISO YYYY-MM-DD
-function _custoAteData(usuarioId, dataLimite) {
+/* =================================================================
+   RENTABILIDADE MENSAL A MERCADO [RENT v2 · 11/10/2026]
+
+   Fórmula oficial:
+     Rentabilidade = (PF − PI − AportesLíquidos + Proventos) / PI
+   Onde:
+     PI = patrimônio a valor de mercado no último dia do mês anterior
+     PF = patrimônio a valor de mercado no último dia do mês
+     AportesLíquidos = capital que entrou/saiu nesse mês (COMPRA/APORTE/ENTRADA
+                       menos VENDA/SAIDA em valor financeiro)
+     Proventos = PROVENTO + RENDIMENTO_RF recebidos no mês (não alteram
+                 a posição; sem somá-los, a queda ex-dividendo distorceria o %
+   Fonte de preços:
+     B3 → buscarPrecosMensaisB3 (range=2y/1mo, HTTP 200 confirmado 11/10/2026)
+     Cripto → buscarPrecosMensaisCripto (Binance klines interval=1M)
+     RF → custo acumulado (sem fonte de cotação de mercado)
+   Fallback se não tiver preço → preço médio (custo/qtd) da posição naquela data
+   ================================================================= */
+
+// Último dia de calendar de um anoMes "YYYY-MM" → string "YYYY-MM-DD"
+function _ultimoDiaDoMes(anoMes) {
+    var ano = parseInt(anoMes.slice(0, 4), 10);
+    var mes = parseInt(anoMes.slice(5, 7), 10);
+    var d = new Date(ano, mes, 0).getDate();
+    return anoMes + '-' + (d < 10 ? '0' : '') + d;
+}
+
+// Patrimônio a valor de mercado no último dia do anoMes, dado um mapa de
+// preços mensais: { ticker: { "YYYY-MM": close } }
+// Para Renda Fixa, usa custo acumulado (APORTE + RENDIMENTO_RF − SAIDA).
+function patrimonioNaData(usuarioId, anoMes, precosMensaisPorTicker) {
     var db = loadDB();
+    var ativosPorId = ativosPorIdDe(db);
+    var dataLimite = _ultimoDiaDoMes(anoMes);
+
+    // Posições de ativos que têm motor (ACAO/FII/BDR/CRIPTO)
+    var txsMotor = ordenarTransacoes(
+        (db.transacoes || []).filter(function (t) {
+            return t.usuarioId === usuarioId && t.data <= dataLimite
+                && t.tipo !== 'PROVENTO' && t.tipo !== 'APORTE' && t.tipo !== 'RENDIMENTO_RF';
+        })
+    );
+    var carteira = processarCarteira(txsMotor, ativosPorId);
+    var posicoes = carteira.posicoes;
+
+    var total = 0;
+
+    // Ativos processados pelo motor
+    Object.keys(posicoes).forEach(function (ativoId) {
+        var pos = posicoes[ativoId];
+        if (!pos.ativo || pos.quantidade <= QTD_EPSILON) return;
+        var ticker = pos.ativo.ticker;
+        var classe = pos.ativo.classe;
+        if (classe === 'RENDA_FIXA') return; // tratado abaixo
+
+        var precosMes = precosMensaisPorTicker[ticker];
+        var preco = precosMes ? (precosMes[anoMes] || null) : null;
+
+        if (preco !== null && preco > 0) {
+            total += pos.quantidade * preco;
+        } else {
+            // Fallback: preço médio de custo
+            var pm = pos.qtdComCusto > 0 ? pos.custoTotal / pos.qtdComCusto : 0;
+            total += pos.quantidade * pm;
+        }
+    });
+
+    // Renda fixa: custo acumulado (APORTE) + rendimentos − saídas até a data
+    var ativosRF = (db.ativos || []).filter(function (a) { return a.classe === 'RENDA_FIXA'; });
+    ativosRF.forEach(function (ativo) {
+        var saldoRF = (db.transacoes || []).filter(function (t) {
+            return t.usuarioId === usuarioId && t.ativoId === ativo.id && t.data <= dataLimite;
+        }).reduce(function (s, t) {
+            if (t.tipo === 'APORTE') return s + Number(t.valor || 0);
+            if (t.tipo === 'RENDIMENTO_RF') return s + Number(t.valor || 0);
+            if (t.tipo === 'SAIDA') return s - Number(t.valor || 0);
+            return s;
+        }, 0);
+        if (saldoRF > 0) total += saldoRF;
+    });
+
+    return total;
+}
+
+// Soma PROVENTO + RENDIMENTO_RF recebidos no mês (valor em reais)
+function proventosNoMes(usuarioId, anoMes) {
+    var db = loadDB();
+    var ini = anoMes + '-01';
+    var fim = _ultimoDiaDoMes(anoMes);
     return (db.transacoes || []).filter(function (t) {
-        return t.usuarioId === usuarioId && t.data <= dataLimite;
+        return t.usuarioId === usuarioId
+            && (t.tipo === 'PROVENTO' || t.tipo === 'RENDIMENTO_RF')
+            && t.data >= ini && t.data <= fim;
+    }).reduce(function (s, t) { return s + Number(t.valor || 0); }, 0);
+}
+
+// Fluxos líquidos de capital no mês: dinheiro novo que entrou menos o que saiu.
+// Não inclui conversão/stake/entrada (sem custo de capital).
+// Não inclui proventos (tratados separadamente na fórmula).
+function aportesLiquidosNoMes(usuarioId, anoMes) {
+    var db = loadDB();
+    var ativosPorId = ativosPorIdDe(db);
+    var ini = anoMes + '-01';
+    var fim = _ultimoDiaDoMes(anoMes);
+    return (db.transacoes || []).filter(function (t) {
+        return t.usuarioId === usuarioId && t.data >= ini && t.data <= fim;
     }).reduce(function (s, t) {
-        // campos corretos do modelo: precoUnitario, corretagemTaxas, valor
+        var ativo = ativosPorId[t.ativoId];
         if (t.tipo === 'COMPRA') return s + (Number(t.quantidade) * Number(t.precoUnitario) + (Number(t.corretagemTaxas) || 0));
-        if (t.tipo === 'APORTE') return s + Number(t.valor || 0);
-        if (t.tipo === 'RENDIMENTO_RF') return s + Number(t.valor || 0);
+        if (t.tipo === 'APORTE') return s + Number(t.valor || 0); // RF
+        if (t.tipo === 'VENDA') return s - (Number(t.quantidade) * Number(t.precoUnitario) - (Number(t.corretagemTaxas) || 0));
+        if (t.tipo === 'SAIDA') return s - Number(t.valor || 0); // RF saindo
         return s;
+        // ENTRADA, STAKE, CONVERSAO, PROVENTO, RENDIMENTO_RF → sem fluxo de capital
     }, 0);
 }
 
-// Calcula rentabilidade aproximada da carteira em um mês fechado.
-// Estratégia: compara patrimônio aportado no início vs fim (inclui rendimentos RF do mês).
-// Mês inaugural (sem patrimônio anterior): marca como 0,00% com flag primeiroMes=true.
-function rentabilidadeCarteiraMes(usuarioId, anoMes) {
-    var partes = anoMes.split('-');
-    var ano = parseInt(partes[0], 10);
-    var mes = parseInt(partes[1], 10);
-    var ultimoDia = new Date(ano, mes, 0).getDate();
-    var fimMes = anoMes + '-' + (ultimoDia < 10 ? '0' : '') + ultimoDia;
-    // dia anterior ao início do mês = último dia do mês anterior
-    var d = new Date(ano, mes - 1, 0);
-    var diaAnterior = d.getFullYear() + '-' + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1) + '-' + (d.getDate() < 10 ? '0' : '') + d.getDate();
+// Calcula rentabilidade a valor de mercado de um mês fechado.
+// Requer o mapa de preços mensais já resolvido: { ticker: { "YYYY-MM": close } }
+// Retorna { rentabilidade, primeiroMes, patrimonioInicio, patrimonioFim,
+//           aportesLiquidos, proventos } ou null se não houver patrimônio.
+function rentabilidadeCarteiraMes(usuarioId, anoMes, precosMensaisPorTicker) {
+    // anoMes anterior
+    var ano = parseInt(anoMes.slice(0, 4), 10);
+    var mes = parseInt(anoMes.slice(5, 7), 10);
+    var anoMesAnterior;
+    if (mes === 1) { anoMesAnterior = (ano - 1) + '-12'; }
+    else { anoMesAnterior = ano + '-' + (mes - 1 < 10 ? '0' : '') + (mes - 1); }
 
-    var custoInicio = _custoAteData(usuarioId, diaAnterior);
-    var custoFim    = _custoAteData(usuarioId, fimMes);
+    var patrimonioFim = patrimonioNaData(usuarioId, anoMes, precosMensaisPorTicker);
 
-    // Sem nenhum patrimônio até o fim do mês: nada a calcular
-    if (custoFim <= 0) return null;
+    // Sem patrimônio no fim: nada a calcular
+    if (patrimonioFim <= 0) return null;
 
-    // Primeiro mês da carteira (nenhum patrimônio antes): marca como inaugural
-    if (custoInicio <= 0) return { rentabilidade: 0, primeiroMes: true };
+    var patrimonioInicio = patrimonioNaData(usuarioId, anoMesAnterior, precosMensaisPorTicker);
 
-    // Rendimentos RF do mês (único ganho mensurável sem cotações históricas)
-    var db = loadDB();
-    var rendRFMes = (db.transacoes || []).filter(function (t) {
-        return t.usuarioId === usuarioId && t.tipo === 'RENDIMENTO_RF'
-            && t.data >= anoMes + '-01' && t.data <= fimMes;
-    }).reduce(function (s, t) { return s + Number(t.valor || 0); }, 0);
+    // Primeiro mês (sem patrimônio antes)
+    if (patrimonioInicio <= 0) {
+        return { rentabilidade: 0, primeiroMes: true,
+                 patrimonioInicio: 0, patrimonioFim: patrimonioFim,
+                 aportesLiquidos: 0, proventos: 0 };
+    }
 
-    // Base: custo médio entre início e fim do mês.
-    // Isso dilui aportes intermediários e evita a distorção de usar só o patrimônio inicial
-    // quando grandes aportes chegaram durante o mês (ex: set/26 foi de 56 para 581).
-    var custoMedio = (custoInicio + custoFim) / 2;
-    var rentabilidade = (rendRFMes / custoMedio) * 100;
-    return { rentabilidade: rentabilidade, primeiroMes: false };
+    var aportes  = aportesLiquidosNoMes(usuarioId, anoMes);
+    var proventos = proventosNoMes(usuarioId, anoMes);
+
+    var numerador = patrimonioFim - patrimonioInicio - aportes + proventos;
+    var rentabilidade = (numerador / patrimonioInicio) * 100;
+
+    return {
+        rentabilidade: rentabilidade,
+        primeiroMes: false,
+        patrimonioInicio: patrimonioInicio,
+        patrimonioFim: patrimonioFim,
+        aportesLiquidos: aportes,
+        proventos: proventos,
+    };
 }
 
-// Fecha todos os meses anteriores ao corrente que ainda não foram fechados.
-// Chamado no boot do app.
+// [RENT v2 · 11/10/2026] Fecha todos os meses anteriores ao corrente que ainda
+// não foram fechados. Agora async: busca preços históricos na brapi/Binance
+// antes de calcular a rentabilidade de cada mês. Retorna Promise<number> com
+// a quantidade de meses novos salvos (0 = nada de novo).
 function fecharMesAnteriorSeNecessario(usuarioId) {
     var hoje = new Date();
     var db = loadDB();
+
+    // [RENT v2] Migração de versão: o histórico v1 só media RF (método errado).
+    // Apaga e recalcula tudo uma única vez.
+    if (!db.historicoRentabilidadeVersao || db.historicoRentabilidadeVersao < 2) {
+        db.historicoRentabilidade = [];
+        db.historicoRentabilidadeVersao = 2;
+        saveDB(db);
+    }
+
     db.historicoRentabilidade = db.historicoRentabilidade || [];
 
     // Descobre o mês mais antigo com transação deste usuário
     var txs = (db.transacoes || []).filter(function (t) { return t.usuarioId === usuarioId && t.data; });
-    if (!txs.length) return;
+    if (!txs.length) return Promise.resolve(0);
     txs.sort(function (a, b) { return a.data < b.data ? -1 : 1; });
-    var primeiraTx = txs[0].data; // YYYY-MM-DD
+    var primeiraTx = txs[0].data;
 
-    // Itera do mês da primeira tx até o mês anterior ao atual
     var anoInicio = parseInt(primeiraTx.slice(0, 4), 10);
     var mesInicio = parseInt(primeiraTx.slice(5, 7), 10);
     var anoFim = hoje.getFullYear();
-    var mesFim = hoje.getMonth(); // 0-based, então é o mês ANTERIOR ao atual (hoje.getMonth() = mês atual 0-based)
+    var mesFim = hoje.getMonth(); // 0-based = mês anterior ao atual
 
+    // Coleta meses pendentes
+    var pendentes = [];
     for (var ano = anoInicio; ano <= anoFim; ano++) {
         var mStart = (ano === anoInicio) ? mesInicio : 1;
         var mEnd   = (ano === anoFim)   ? mesFim    : 12;
@@ -4892,15 +5134,46 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
             var jaFechou = db.historicoRentabilidade.some(function (h) {
                 return h.usuarioId === usuarioId && h.mes === anoMes;
             });
-            if (jaFechou) continue;
+            if (!jaFechou) pendentes.push(anoMes);
+        }
+    }
+    if (!pendentes.length) return Promise.resolve(0);
 
-            var resultado = rentabilidadeCarteiraMes(usuarioId, anoMes);
-            var rentab = resultado.rentabilidade;
+    // Descobre todos os tickers com posição em algum dos meses pendentes
+    // (conservador: usa todos os ativos do usuário — pré-filtragem por mês
+    // é opcional e seria mais complexa; na prática a carteira não tem dezenas
+    // de tickers)
+    var dbNow = loadDB();
+    var ativosPorId = ativosPorIdDe(dbNow);
+    var tickersComClasse = [];
+    var vistos = {};
+    (dbNow.ativos || []).forEach(function (a) {
+        if (!vistos[a.ticker]) {
+            vistos[a.ticker] = true;
+            tickersComClasse.push({ ticker: a.ticker, classe: a.classe });
+        }
+    });
 
-            // busca CDI histórico do mês; salva com fallback fixo se falhar
-            (function (am, r, isPrimeiro) {
-                buscarCDIMesFechado(am).then(function (cdi) {
-                    // BCB retornou null (offline): tenta usar último CDI diário em cache × 22 du
+    // Busca preços mensais de todos os tickers em paralelo
+    // (brapi ainda serializa via brapiFilaPromise por ticker, cripto não)
+    var promessasPrecos = tickersComClasse.map(function (tc) {
+        return buscarPrecosMensais(tc.ticker, tc.classe).then(function (mapa) {
+            return { ticker: tc.ticker, mapa: mapa };
+        });
+    });
+
+    return Promise.all(promessasPrecos).then(function (resultados) {
+        var precosMensaisPorTicker = {};
+        resultados.forEach(function (r) { precosMensaisPorTicker[r.ticker] = r.mapa; });
+
+        // Fecha cada mês pendente em série (processo síncrono depois dos fetches)
+        var chain = Promise.resolve(0);
+        pendentes.forEach(function (am) {
+            chain = chain.then(function (novos) {
+                var resultado = rentabilidadeCarteiraMes(usuarioId, am, precosMensaisPorTicker);
+                if (!resultado) return novos; // sem patrimônio neste mês
+
+                return buscarCDIMesFechado(am).then(function (cdi) {
                     if (cdi === null) {
                         var ultimoCache = (function () {
                             try { return JSON.parse(armazem.get(CDI_CACHE_KEY) || 'null'); } catch (e) { return null; }
@@ -4908,32 +5181,54 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                         var ref = (ultimoCache && ultimoCache.cdiDiario) ? ultimoCache.cdiDiario : 0.0402;
                         cdi = (Math.pow(1 + ref / 100, 22) - 1) * 100;
                     }
-                    var dbNow = loadDB();
-                    dbNow.historicoRentabilidade = dbNow.historicoRentabilidade || [];
-                    var jaSalvou = dbNow.historicoRentabilidade.some(function (h) {
+
+                    var dbSave = loadDB();
+                    dbSave.historicoRentabilidade = dbSave.historicoRentabilidade || [];
+                    var jaSalvou = dbSave.historicoRentabilidade.some(function (h) {
                         return h.usuarioId === usuarioId && h.mes === am;
                     });
                     if (!jaSalvou) {
-                        dbNow.historicoRentabilidade.push({
+                        dbSave.historicoRentabilidade.push({
                             mes: am,
                             usuarioId: usuarioId,
-                            rentabilidade: r,
+                            rentabilidade: resultado.rentabilidade,
                             cdi: cdi,
-                            primeiroMes: isPrimeiro || undefined,
+                            primeiroMes: resultado.primeiroMes || undefined,
+                            patrimonioInicio: resultado.patrimonioInicio,
+                            patrimonioFim: resultado.patrimonioFim,
+                            aportesLiquidos: resultado.aportesLiquidos,
+                            proventos: resultado.proventos,
                         });
-                        saveDB(dbNow);
+                        saveDB(dbSave);
+                        return novos + 1;
                     }
+                    return novos;
                 });
-            })(anoMes, rentab, resultado.primeiroMes);
-        }
-    }
+            });
+        });
+        return chain;
+    });
+}
+
+// [RENT v2] Atualiza o heatmap no DOM sem re-renderizar a página inteira.
+// Chamado após fecharMesAnteriorSeNecessario() concluir com meses novos.
+function atualizarHeatmapDOM(usuarioId) {
+    var container = document.getElementById('heatmap-container');
+    if (!container) return;
+    container.innerHTML = mapaRentabilidadeHTML(usuarioId);
 }
 
 // Monta o HTML do mapa de calor de rentabilidade mensal
 function mapaRentabilidadeHTML(usuarioId) {
     var db = loadDB();
     var hist = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; });
-    if (!hist.length) return '';
+    // Skeleton enquanto o backfill ainda está em andamento
+    if (!hist.length) {
+        return '<div id="heatmap-container"><div class="heatmap-wrap">' +
+            '<p class="heatmap-titulo">Rentabilidade mensal vs CDI</p>' +
+            '<p style="font-size:var(--text-xs);color:var(--color-text-subtle);margin-top:6px">Calculando histórico…</p>' +
+            '</div></div>';
+    }
 
     hist.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
 
@@ -4966,10 +5261,10 @@ function mapaRentabilidadeHTML(usuarioId) {
             cdiRef + '</div>';
     }).join('');
 
-    return '<div class="heatmap-wrap">' +
+    return '<div id="heatmap-container"><div class="heatmap-wrap">' +
         '<p class="heatmap-titulo">Rentabilidade mensal vs CDI</p>' +
         '<div class="heatmap-grid">' + celulas + '</div>' +
-        '</div>';
+        '</div></div>';
 }
 
 function renderRankingsHTML(rankings) {
@@ -5809,8 +6104,13 @@ function renderCurrentRoute() {
 
     if (!user && hash !== '/login' && hash !== '/register') { navegar('/login'); return; }
     if (user && (hash === '/login' || hash === '/register')) { navegar('/dashboard'); return; }
-    // [CDI v1] fecha o mês anterior se ainda não fechado — roda em background, sem bloquear a UI
-    if (user) { try { fecharMesAnteriorSeNecessario(user.id); } catch (e) {} }
+    // [RENT v2] fecha meses anteriores em background — não bloqueia o render.
+    // Quando termina, atualiza só o heatmap no DOM (sem re-renderizar a página).
+    if (user) {
+        fecharMesAnteriorSeNecessario(user.id)
+            .then(function (novos) { if (novos > 0) atualizarHeatmapDOM(user.id); })
+            .catch(function () {});
+    }
 
     var app = document.getElementById('app');
 
@@ -7835,19 +8135,26 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
         });
     }
 
-    // [CDI v1] histórico de rentabilidade mensal
-    // Registros com rentabilidade null (vindo de versões antigas do backup) são descartados
-    // para que fecharMesAnteriorSeNecessario os recalcule corretamente no próximo boot.
+    // [RENT v2] histórico de rentabilidade mensal.
+    // Ao importar backup, limpa o histórico deste usuário e reseta a flag de versão
+    // para que fecharMesAnteriorSeNecessario recalcule tudo com o método v2 (a mercado).
+    // Registros com rentabilidade null são descartados (backups de versões antigas).
     if (dados.historicoRentabilidade) {
         db.historicoRentabilidade = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId !== usuarioId; });
+        // Força recálculo com método v2 no próximo boot
+        db.historicoRentabilidadeVersao = 1; // intencional: versão < 2 dispara migração
         dados.historicoRentabilidade.forEach(function (h) {
-            if (h.rentabilidade === null || h.rentabilidade === undefined) return; // descarta inválidos
+            if (h.rentabilidade === null || h.rentabilidade === undefined) return;
             db.historicoRentabilidade.push({
                 mes: h.mes,
                 usuarioId: usuarioId,
                 rentabilidade: Number(h.rentabilidade),
                 cdi: h.cdi != null ? Number(h.cdi) : null,
                 primeiroMes: h.primeiroMes || undefined,
+                patrimonioInicio: h.patrimonioInicio != null ? Number(h.patrimonioInicio) : undefined,
+                patrimonioFim: h.patrimonioFim != null ? Number(h.patrimonioFim) : undefined,
+                aportesLiquidos: h.aportesLiquidos != null ? Number(h.aportesLiquidos) : undefined,
+                proventos: h.proventos != null ? Number(h.proventos) : undefined,
             });
         });
     }
