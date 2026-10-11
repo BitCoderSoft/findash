@@ -1,0 +1,2032 @@
+<!DOCTYPE html>
+<!--
+  Dash Finance — clone single-file (HTML+CSS+JS) do app Django do mesmo projeto.
+
+  - "Banco de dados" = localStorage do navegador (chave DASH_FINANCE_DB_V1).
+    Cada navegador/perfil tem sua própria carteira; nada sai da máquina, exceto
+    a consulta de cotação (brapi.dev).
+  - Token da brapi fica direto no código (const BRAPI_TOKEN), sem .env — decisão
+    explícita: este arquivo é uso pessoal, local, nunca publicado/versionado
+    em repositório compartilhado. Não faça isso num projeto que vá ao ar.
+  - Autenticação aqui é só para manter a mesma experiência (várias contas na
+    mesma máquina) — a senha passa por um hash bem simples só pra não ficar
+    em texto puro no localStorage; NÃO é segurança de verdade. Não reutilize
+    essa senha em outro lugar.
+  - Regras de negócio (preço médio ponderado, bloqueio de venda a descoberto,
+    agrupamento por classe, formatação de quantidade pra B3, etc.) são um
+    porte fiel de investments/services.py, investments/forms.py e
+    investments/charts.py do app Django — ver AGENTS.md do projeto principal
+    para o porquê de cada regra.
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dash Finance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&display=swap">
+<style>
+/* ---------------------------------------------------------------
+   Dash Finance — design system v3.1 (porte fiel do base.css do app Django)
+   Acento grafite/quase-preto, topbar horizontal, serif editorial só em
+   título/números grandes. Paleta categórica dos gráficos validada com a
+   skill dataviz no projeto original.
+   --------------------------------------------------------------- */
+
+:root {
+    --color-bg: #f5f6f8;
+    --color-surface: #ffffff;
+    --color-border: #e7e9ee;
+    --color-border-strong: #d8dbe3;
+    --color-text: #14151a;
+    --color-text-muted: #6b7280;
+    --color-text-subtle: #9aa0ab;
+
+    --color-primary: #201c1a;
+    --color-primary-hover: #3a332e;
+    --color-primary-soft: #f1efec;
+
+    --color-success: #17803d;
+    --color-success-bg: #e3f6ea;
+    --color-danger: #c8322a;
+    --color-danger-bg: #fbe9e8;
+    --color-neutral-bg: #eef0f3;
+
+    --color-brand-panel-1: #17161a;
+    --color-brand-panel-2: #2b2a30;
+
+    --radius-sm: 8px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+
+    --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 6px rgba(16, 24, 40, 0.05);
+
+    --text-xs: 0.75rem;
+    --text-sm: 0.8125rem;
+    --text-base: 0.875rem;
+    --text-md: 0.9375rem;
+    --text-lg: 1.125rem;
+    --text-xl: 1.375rem;
+    --text-2xl: 1.75rem;
+    --text-3xl: 2.25rem;
+
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-font-smoothing: antialiased; }
+body { margin: 0; font-family: var(--font); font-size: var(--text-base); line-height: 1.5; background: var(--color-bg); color: var(--color-text); }
+a { color: inherit; text-decoration: none; }
+h1, h2, h3, p { margin: 0; }
+h1, h2 { font-family: var(--font-display); font-weight: 600; }
+
+/* Buttons */
+.button { appearance: none; margin: 0; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: var(--radius-sm); padding: 0 16px; height: 40px; font-family: inherit; font-size: var(--text-base); font-weight: 600; cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
+.button.primary { background: var(--color-primary); color: #fff; }
+.button.primary:hover { background: var(--color-primary-hover); }
+.button.ghost { background: transparent; border-color: var(--color-border-strong); color: var(--color-text); padding: 0 14px; height: 34px; font-size: var(--text-sm); }
+.button.ghost:hover { background: var(--color-neutral-bg); }
+.button.disabled { background: var(--color-neutral-bg); color: var(--color-text-subtle); cursor: not-allowed; }
+.button.small { height: 28px; padding: 0 10px; font-size: var(--text-xs); }
+
+/* Form fields */
+.field { margin-bottom: 16px; }
+.field label { display: block; margin-bottom: 6px; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-muted); }
+input, select { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface); font-size: var(--text-base); font-family: inherit; color: var(--color-text); }
+input::placeholder { color: var(--color-text-subtle); }
+input:focus, select:focus { border-color: var(--color-primary); outline: none; box-shadow: 0 0 0 3px var(--color-primary-soft); }
+.field-help { margin: 6px 0 0; font-size: var(--text-xs); color: var(--color-text-subtle); }
+.field-error { margin: 6px 0 0; font-size: var(--text-xs); color: var(--color-danger); }
+.errors { margin-bottom: 16px; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--color-danger); background: var(--color-danger-bg); color: var(--color-danger); font-size: var(--text-sm); }
+.errors ul { margin: 6px 0 0; padding-left: 16px; }
+.hint { color: var(--color-text-muted); margin-top: 16px; font-size: var(--text-sm); }
+.hint a { color: var(--color-primary); font-weight: 600; }
+.hint a:hover { text-decoration: underline; }
+
+/* Auth shell (split screen) */
+.auth-shell { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
+.auth-brand { background: linear-gradient(160deg, var(--color-brand-panel-1), var(--color-brand-panel-2)); color: #fff; display: flex; flex-direction: column; justify-content: center; padding: 64px; position: relative; overflow: hidden; }
+.auth-brand .brand-mark-lg { width: 36px; height: 36px; border-radius: 9px; background: #fff; color: var(--color-brand-panel-1); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-lg); margin-bottom: 28px; }
+.auth-brand h2 { font-size: var(--text-2xl); font-weight: 600; margin-bottom: 12px; max-width: 360px; }
+.auth-brand p { color: rgba(255, 255, 255, 0.65); font-size: var(--text-md); max-width: 340px; line-height: 1.6; margin-bottom: 40px; }
+.auth-illustration { width: 100%; max-width: 360px; height: auto; opacity: 0.9; }
+.auth-form-area { display: flex; align-items: center; justify-content: center; padding: 24px; }
+.auth-form-wrap { width: 100%; max-width: 340px; }
+.auth-form-wrap h1 { font-size: var(--text-xl); font-weight: 600; margin-bottom: 4px; }
+.auth-form-wrap .auth-subtitle { color: var(--color-text-muted); font-size: var(--text-sm); margin-bottom: 28px; }
+.auth-form-wrap .button.primary { width: 100%; }
+@media (max-width: 900px) { .auth-shell { grid-template-columns: 1fr; } .auth-brand { display: none; } }
+
+/* App shell (topbar horizontal) */
+.app-shell { min-height: 100vh; }
+.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 32px; height: 56px; padding: 0 24px; background: var(--color-surface); border-bottom: 1px solid var(--color-border); }
+.brand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.brand-mark { width: 24px; height: 24px; border-radius: 7px; background: var(--color-primary); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-family: var(--font-display); font-size: var(--text-xs); }
+.brand-name { font-family: var(--font-display); font-weight: 600; font-size: var(--text-base); }
+.main-nav { display: flex; align-items: center; gap: 4px; height: 100%; overflow-x: auto; }
+.nav-item { display: flex; align-items: center; height: 100%; padding: 0 12px; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-muted); border-bottom: 2px solid transparent; white-space: nowrap; }
+a.nav-item:hover { color: var(--color-text); }
+.nav-item.active { color: var(--color-text); border-bottom-color: var(--color-primary); font-weight: 600; }
+.nav-item.disabled { color: var(--color-text-subtle); cursor: not-allowed; }
+.topbar-actions { margin-left: auto; flex-shrink: 0; display: flex; align-items: center; gap: 12px; }
+.page-content { max-width: 1180px; margin: 0 auto; padding: 28px 24px 48px; }
+.page-heading { margin-bottom: 24px; }
+.page-heading h1 { font-size: var(--text-xl); }
+.page-heading .page-subtitle { color: var(--color-text-muted); font-size: var(--text-sm); margin-top: 4px; }
+
+/* KPI cards */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1px; background: var(--color-border); border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; margin-bottom: 24px; }
+.kpi-card { background: var(--color-surface); padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
+.kpi-card.hero { grid-column: span 2; background: var(--color-primary-soft); justify-content: center; }
+.kpi-label { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-subtle); }
+.kpi-card.hero .kpi-label { color: var(--color-primary); }
+.kpi-value { font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+.kpi-card.hero .kpi-value { font-size: var(--text-3xl); }
+.kpi-value.up { color: var(--color-success); }
+.kpi-value.down { color: var(--color-danger); }
+@media (max-width: 640px) { .kpi-card.hero { grid-column: span 1; } }
+
+.trend { display: inline-flex; align-items: center; gap: 4px; width: fit-content; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.trend.up { background: var(--color-success-bg); color: var(--color-success); }
+.trend.down { background: var(--color-danger-bg); color: var(--color-danger); }
+.trend.neutral { background: var(--color-neutral-bg); color: var(--color-text-subtle); }
+
+/* Summary cards (Posições) */
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.summary-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 18px 20px; }
+.summary-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.summary-card-title { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-subtle); }
+.info-button { appearance: none; width: 18px; height: 18px; flex-shrink: 0; border-radius: 50%; border: 1px solid var(--color-border-strong); background: transparent; color: var(--color-text-subtle); font-size: 11px; font-weight: 600; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.info-button:hover { background: var(--color-neutral-bg); color: var(--color-text); }
+.destaques-grid { display: flex; gap: 20px; }
+.destaque-item { flex: 1; min-width: 0; }
+.destaque-label { font-size: var(--text-xs); color: var(--color-text-subtle); margin-bottom: 4px; }
+.destaque-value { font-family: var(--font-display); font-size: var(--text-md); font-weight: 600; }
+.destaque-sub { font-size: var(--text-xs); color: var(--color-text-subtle); margin-top: 4px; }
+.progress-bar { height: 6px; border-radius: 999px; background: var(--color-neutral-bg); overflow: hidden; margin: 10px 0 6px; }
+.progress-bar-fill { height: 100%; border-radius: 999px; background: var(--color-text-subtle); }
+
+/* Grupos de posição por classe */
+.classe-group { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; margin-bottom: 16px; }
+.classe-group-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--color-border); }
+.classe-group-title { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.classe-group-count { font-weight: 500; color: var(--color-text-subtle); }
+.color-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.classe-group-stats { display: flex; gap: 24px; font-size: var(--text-sm); color: var(--color-text-muted); }
+.classe-group-stats strong { color: var(--color-text); font-weight: 600; }
+.classe-group-table-scroll { overflow-x: auto; }
+.classe-group-table-scroll .table { white-space: nowrap; }
+.ativo-cell { display: flex; align-items: center; gap: 8px; }
+.ativo-logo { width: 22px; height: 22px; border-radius: 6px; object-fit: contain; background: var(--color-neutral-bg); flex-shrink: 0; }
+.ativo-logo-fallback { display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--color-text-subtle); }
+.ativo-link { color: var(--color-text); }
+.ativo-link:hover { text-decoration: underline; }
+
+/* Página de detalhe do ativo */
+.back-link { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); color: var(--color-text-muted); margin-bottom: 16px; }
+.back-link:hover { color: var(--color-text); text-decoration: underline; }
+.ativo-header { display: flex; align-items: center; gap: 18px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 20px 24px; flex-wrap: wrap; }
+.ativo-logo-lg { width: 52px; height: 52px; border-radius: 12px; object-fit: contain; background: var(--color-neutral-bg); flex-shrink: 0; }
+.ativo-logo-lg-fallback { display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--color-text-subtle); }
+.ativo-header-info h1 { font-size: var(--text-xl); }
+.ativo-header-preco { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.ativo-preco-atual { font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Gráfico de histórico interativo (crosshair + tooltip) */
+.hist-chart-wrap { position: relative; margin-top: 12px; }
+.hist-grid { stroke: var(--color-border); stroke-width: 1; }
+.hist-axis-label { fill: var(--color-text-subtle); font-size: 10px; font-family: var(--font); }
+.hist-line { stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.hist-crosshair { stroke: var(--color-border-strong); stroke-width: 1; }
+.hist-dot { stroke: var(--color-surface); stroke-width: 2; }
+.hist-hit-rect { cursor: crosshair; }
+.hist-tooltip { position: absolute; pointer-events: none; background: var(--color-text); color: #fff; border-radius: var(--radius-sm); padding: 8px 10px; font-size: var(--text-xs); box-shadow: var(--shadow-sm); white-space: nowrap; z-index: 5; }
+.hist-tooltip-data { color: rgba(255, 255, 255, 0.65); font-size: 10px; margin-bottom: 2px; }
+.hist-tooltip-valor { font-weight: 700; font-variant-numeric: tabular-nums; }
+.hist-tooltip-variacao { margin-top: 2px; font-weight: 600; }
+.hist-tooltip-variacao.up { color: #8fe3ab; }
+.hist-tooltip-variacao.down { color: #f3a49e; }
+
+/* Empty-state panels */
+.panel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.empty-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 32px 28px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; min-height: 220px; justify-content: center; }
+.empty-illustration { width: 96px; height: auto; color: var(--color-text-subtle); }
+.empty-title { font-size: var(--text-base); font-weight: 600; color: var(--color-text); }
+.empty-text { font-size: var(--text-sm); color: var(--color-text-muted); max-width: 260px; }
+
+/* Messages */
+.messages { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 200; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.message { padding: 10px 16px; border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: 500; box-shadow: var(--shadow-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); }
+.message.success { border-color: var(--color-success); background: var(--color-success-bg); color: var(--color-success); }
+.message.error { border-color: var(--color-danger); background: var(--color-danger-bg); color: var(--color-danger); }
+
+/* Drawer (slide-over) */
+.drawer-overlay { position: fixed; inset: 0; background: rgba(15, 16, 26, 0.4); opacity: 0; visibility: hidden; transition: opacity 200ms ease; z-index: 100; }
+.drawer-overlay.open { opacity: 1; visibility: visible; }
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(520px, 92vw); background: var(--color-surface); box-shadow: -24px 0 48px rgba(15, 16, 26, 0.10); border-left: 1px solid var(--color-border); transform: translateX(100%); transition: transform 220ms ease; z-index: 101; display: flex; flex-direction: column; }
+.drawer.open { transform: translateX(0); }
+.drawer-form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer-overlay { transition: none; } }
+.drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--color-border); }
+.drawer-header h2 { font-size: var(--text-lg); font-weight: 600; }
+.drawer-close { appearance: none; border: none; background: transparent; font-size: var(--text-xl); line-height: 1; color: var(--color-text-muted); cursor: pointer; padding: 4px; }
+.drawer-close:hover { color: var(--color-text); }
+.drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px; }
+.drawer-footer { display: flex; justify-content: flex-end; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--color-border); }
+.drawer-footer .button { width: auto; }
+
+/* Table */
+.table-wrap { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); white-space: nowrap; }
+.table th, .table td { text-align: left; padding: 12px 16px; }
+.table thead th { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-subtle); border-bottom: 1px solid var(--color-border); }
+.table tbody tr { border-bottom: 1px solid var(--color-border); }
+.table tbody tr:last-child { border-bottom: none; }
+.table-actions { display: flex; gap: 8px; }
+
+/* Gráficos do Resumo (porte do extra_css de dashboard.html) */
+.chart-panel { align-items: stretch; text-align: left; justify-content: flex-start; }
+.chart-panel-title { align-self: flex-start; }
+.chart-svg { width: 100%; height: auto; margin-top: 12px; }
+.chart-bar { fill: var(--color-primary); }
+.chart-axis { stroke: var(--color-border); stroke-width: 1; }
+.chart-bar-label, .chart-x-label { fill: var(--color-text-muted); font-size: 9px; font-family: var(--font); }
+.donut-wrap { display: flex; align-items: center; gap: 24px; margin-top: 12px; position: relative; }
+.chart-svg-donut { width: 120px; height: 120px; flex-shrink: 0; }
+.donut-total { fill: var(--color-text); font-family: var(--font-display); font-weight: 600; font-size: 13px; }
+.donut-total-label { fill: var(--color-text-subtle); font-family: var(--font); font-size: 7px; text-transform: uppercase; letter-spacing: 0.04em; }
+.chart-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: var(--text-sm); color: var(--color-text); }
+.legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; }
+
+/* Rankings de ativos (Resumo) */
+.rankings-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); margin-top: 16px; overflow: hidden; }
+.rankings-panel-header { padding: 20px 24px 0; }
+.rankings-panel-header h2 { font-size: var(--text-lg); margin-bottom: 14px; }
+.ranking-tabs { display: flex; gap: 6px; padding-bottom: 16px; }
+.ranking-tab { appearance: none; border: 1px solid var(--color-border-strong); background: var(--color-surface); border-radius: 999px; padding: 6px 14px; font-size: var(--text-sm); font-weight: 600; color: var(--color-text-muted); cursor: pointer; }
+.ranking-tab:hover { background: var(--color-neutral-bg); }
+.ranking-tab.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.ranking-card-header { padding: 14px 24px; border-top: 1px solid var(--color-border); }
+.ranking-card-header h3 { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-subtle); }
+.ranking-list { list-style: none; margin: 0; padding: 0; }
+.ranking-item { border-bottom: 1px solid var(--color-border); }
+.ranking-item:last-child { border-bottom: none; }
+.ranking-item-link { display: flex; align-items: center; gap: 12px; padding: 12px 24px; color: var(--color-text); }
+.ranking-item-link:hover { background: var(--color-neutral-bg); }
+.ranking-pos { font-size: var(--text-xs); font-weight: 700; color: var(--color-text-subtle); width: 20px; flex-shrink: 0; }
+.ranking-pos.primeiro { color: var(--color-primary); }
+.ranking-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ranking-info .ticker { font-weight: 600; font-size: var(--text-sm); }
+.ranking-info .nome { font-size: var(--text-xs); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.ranking-valor { font-variant-numeric: tabular-nums; font-weight: 600; font-size: var(--text-sm); flex-shrink: 0; }
+.ranking-empty { padding: 20px 24px; font-size: var(--text-sm); color: var(--color-text-muted); }
+</style>
+</head>
+<body>
+<ul class="messages" id="messages"></ul>
+<div id="app"></div>
+
+<script>
+(function () {
+'use strict';
+
+/* =================================================================
+   CONFIG / CONSTANTES
+   ================================================================= */
+
+// Uso 100% local — nunca publicado, nunca versionado num repo compartilhado.
+// Por isso o token vive direto aqui (pedido explícito do usuário), em vez de
+// vir de variável de ambiente como no backend Django original.
+var BRAPI_TOKEN = 'fEDYWpoqpSFFpmUDdo2rzN';
+var BRAPI_QUOTE_URL = 'https://brapi.dev/api/v2/stocks/quote';
+var BRAPI_HISTORICAL_URL = 'https://brapi.dev/api/v2/stocks/historical';
+var BRAPI_TICKERS_URL = 'https://brapi.dev/api/v2/tickers';
+// 30 minutos — padronizado (era 5min) pra cotação E histórico: quem acompanha
+// preço de bolsa não precisa de ciclo minuto a minuto, e isso reduz ainda mais
+// as requisições reais à brapi (decisão explícita do usuário).
+var CACHE_TTL_MS = 30 * 60 * 1000;
+
+var DB_KEY = 'DASH_FINANCE_DB_V1';
+var SESSION_KEY = 'DASH_FINANCE_SESSION_V1';
+var QUOTE_CACHE_KEY = 'DASH_FINANCE_QUOTE_CACHE_V1';
+var HIST_CACHE_KEY = 'DASH_FINANCE_HIST_CACHE_V1';
+var RANKING_CACHE_KEY = 'DASH_FINANCE_RANKING_CACHE_V1';
+
+var CLASSES = { ACAO: 'Ação', FII: 'FII', CRIPTO: 'Criptomoeda', RENDA_FIXA: 'Renda fixa' };
+var CLASSES_ORDEM = ['ACAO', 'FII', 'CRIPTO', 'RENDA_FIXA'];
+var CLASSES_INTEIRAS = { ACAO: true, FII: true }; // B3 não fraciona ação/cota de FII
+var CORES_CLASSE = { ACAO: '#2a78d6', FII: '#eb6834', CRIPTO: '#1baf7a', RENDA_FIXA: '#eda100' };
+var MESES_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+/* =================================================================
+   CAMADA DE DADOS (localStorage faz o papel do db.sqlite3)
+   ================================================================= */
+
+function loadDB() {
+    try {
+        var raw = localStorage.getItem(DB_KEY);
+        if (raw) return JSON.parse(raw);
+    } catch (e) { /* localStorage indisponível/corrompido — recomeça do zero */ }
+    return { users: [], ativos: [], transacoes: [], nextId: 1 };
+}
+
+function saveDB(db) {
+    localStorage.setItem(DB_KEY, JSON.stringify(db));
+}
+
+function getSession() {
+    try {
+        var raw = localStorage.getItem(SESSION_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+}
+
+function setSession(userId) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: userId }));
+}
+
+function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
+}
+
+function currentUser() {
+    var session = getSession();
+    if (!session) return null;
+    var db = loadDB();
+    var user = null;
+    for (var i = 0; i < db.users.length; i++) {
+        if (db.users[i].id === session.userId) { user = db.users[i]; break; }
+    }
+    return user;
+}
+
+// Hash bem simples (NÃO criptográfico) só pra não guardar senha em texto puro
+// no localStorage — mesmo espírito do SECRET_KEY hardcoded / DEBUG=True que o
+// projeto Django aceita por ser 100% local. Não reaproveitar essa senha em
+// nenhum serviço de verdade.
+function hashSenha(senha) {
+    var s = 'dashfinance:' + senha;
+    var hash = 0;
+    for (var i = 0; i < s.length; i++) {
+        hash = (hash * 31 + s.charCodeAt(i)) | 0;
+    }
+    return 'h' + Math.abs(hash).toString(36) + ':' + s.length;
+}
+
+/* =================================================================
+   AUTENTICAÇÃO (porte de forms.UserRegisterForm + views.register/login)
+   ================================================================= */
+
+function criarUsuario(username, email, senha1, senha2) {
+    var erros = {};
+    var db = loadDB();
+
+    username = (username || '').trim();
+    if (!username) erros.username = 'Este campo é obrigatório.';
+    else if (db.users.some(function (u) { return u.username === username; })) {
+        erros.username = 'Já existe um usuário com esse nome.';
+    }
+
+    if (!email) erros.email = 'Este campo é obrigatório.';
+
+    if (!senha1) erros.password1 = 'Este campo é obrigatório.';
+    else if (senha1.length < 8) erros.password1 = 'Esta senha é muito curta. Ela precisa conter pelo menos 8 caracteres.';
+    else if (/^\d+$/.test(senha1)) erros.password1 = 'Esta senha é inteiramente numérica.';
+
+    if (senha1 && senha2 && senha1 !== senha2) erros.password2 = 'Os dois campos de senha não correspondem.';
+
+    if (Object.keys(erros).length) return { ok: false, erros: erros };
+
+    var user = { id: db.nextId++, username: username, email: email, passwordHash: hashSenha(senha1), criadoEm: Date.now() };
+    db.users.push(user);
+    saveDB(db);
+    return { ok: true, user: user };
+}
+
+function autenticar(username, senha) {
+    var db = loadDB();
+    var user = db.users.filter(function (u) { return u.username === username; })[0];
+    if (!user) return null;
+    if (user.passwordHash !== hashSenha(senha)) return null;
+    return user;
+}
+
+/* =================================================================
+   SERVICES — porte fiel de investments/services.py
+   ================================================================= */
+
+// Porte de _custo_medio_por_ativo(usuario): preço médio ponderado. Ao vender,
+// reduz o custo total pela quantidade vendida × preço médio vigente (não o
+// preço da própria venda) — é o método usado no Brasil pra apurar preço
+// médio de ações; soma ingênua de fluxo de caixa dá preço médio errado depois
+// da primeira venda parcial.
+function custoMedioPorAtivo(usuarioId) {
+    var db = loadDB();
+    var transacoes = db.transacoes
+        .filter(function (t) { return t.usuarioId === usuarioId; })
+        .slice()
+        .sort(function (a, b) {
+            if (a.data < b.data) return -1;
+            if (a.data > b.data) return 1;
+            if (a.criadoEm !== b.criadoEm) return a.criadoEm - b.criadoEm;
+            return a.id - b.id;
+        });
+
+    var posicoes = {}; // ativoId -> {ativo, quantidade, custoTotal}
+
+    transacoes.forEach(function (t) {
+        var ativo = db.ativos.filter(function (a) { return a.id === t.ativoId; })[0];
+        if (!posicoes[t.ativoId]) posicoes[t.ativoId] = { ativo: ativo, quantidade: 0, custoTotal: 0 };
+        var pos = posicoes[t.ativoId];
+
+        if (t.tipo === 'COMPRA') {
+            pos.quantidade += t.quantidade;
+            pos.custoTotal += t.quantidade * t.precoUnitario + t.corretagemTaxas;
+        } else {
+            var precoMedio = pos.quantidade > 0 ? pos.custoTotal / pos.quantidade : 0;
+            pos.quantidade -= t.quantidade;
+            pos.custoTotal -= t.quantidade * precoMedio;
+        }
+    });
+
+    return posicoes;
+}
+
+// Porte de quantidade_disponivel(usuario, ativo, excluir_transacao_id): só a
+// quantidade líquida (compras - vendas), sem passar pelo custo médio — usado
+// exclusivamente pra bloquear venda a descoberto no formulário.
+function quantidadeDisponivel(usuarioId, ativoId, excluirTransacaoId) {
+    var db = loadDB();
+    var quantidade = 0;
+    db.transacoes.forEach(function (t) {
+        if (t.usuarioId !== usuarioId || t.ativoId !== ativoId) return;
+        if (excluirTransacaoId && t.id === excluirTransacaoId) return;
+        quantidade += (t.tipo === 'COMPRA' ? 1 : -1) * t.quantidade;
+    });
+    return quantidade;
+}
+
+// Porte de posicoes_atuais(usuario).
+function posicoesAtuais(usuarioId) {
+    var posicoes = custoMedioPorAtivo(usuarioId);
+    var abertas = Object.keys(posicoes).map(function (k) { return posicoes[k]; }).filter(function (p) { return p.quantidade > 0; });
+    var total = abertas.reduce(function (s, p) { return s + p.custoTotal; }, 0);
+
+    var resultado = abertas.map(function (p) {
+        return {
+            ativo: p.ativo,
+            quantidade: p.quantidade,
+            precoMedio: p.custoTotal / p.quantidade,
+            valorInvestido: p.custoTotal,
+            percentual: total > 0 ? (p.custoTotal / total) * 100 : 0,
+        };
+    });
+    resultado.sort(function (a, b) { return b.valorInvestido - a.valorInvestido; });
+    return resultado;
+}
+
+// Porte de posicoes_por_classe(usuario): reagrupa posicoesAtuais(), não
+// recalcula nada — mesma fonte de verdade.
+function posicoesPorClasse(usuarioId) {
+    var posicoes = posicoesAtuais(usuarioId);
+    if (!posicoes.length) return [];
+
+    var totalCarteira = posicoes.reduce(function (s, p) { return s + p.valorInvestido; }, 0);
+    var porClasse = {};
+    posicoes.forEach(function (p) {
+        var classe = p.ativo.classe;
+        if (!porClasse[classe]) porClasse[classe] = { classe: classe, posicoes: [], valorTotal: 0 };
+        porClasse[classe].posicoes.push(p);
+        porClasse[classe].valorTotal += p.valorInvestido;
+    });
+
+    var resultado = [];
+    CLASSES_ORDEM.forEach(function (classe) {
+        var grupo = porClasse[classe];
+        if (grupo) {
+            grupo.label = CLASSES[classe];
+            grupo.percentual = totalCarteira > 0 ? (grupo.valorTotal / totalCarteira) * 100 : 0;
+            grupo.cor = CORES_CLASSE[classe];
+            resultado.push(grupo);
+        }
+    });
+    return resultado;
+}
+
+// Porte de aplicar_cotacoes_lista(posicoes, cotacoes).
+function aplicarCotacoesLista(posicoes, cotacoes) {
+    posicoes.forEach(function (p) {
+        var cot = cotacoes[p.ativo.ticker];
+        if (cot && p.precoMedio > 0) {
+            p.cotacao = cot;
+            p.precoAtual = cot.precoAtual;
+            p.valorAtual = cot.precoAtual * p.quantidade;
+            p.rentabilidadePercentual = ((cot.precoAtual - p.precoMedio) / p.precoMedio) * 100;
+            p.lucro = p.rentabilidadePercentual > 0;
+        } else {
+            p.cotacao = null;
+            p.precoAtual = null;
+            p.valorAtual = null;
+            p.rentabilidadePercentual = null;
+            p.lucro = null;
+        }
+    });
+    return posicoes;
+}
+
+// Porte de aplicar_cotacoes(grupos, cotacoes).
+function aplicarCotacoes(grupos, cotacoes) {
+    grupos.forEach(function (g) { aplicarCotacoesLista(g.posicoes, cotacoes); });
+    return grupos;
+}
+
+// Porte de calcular_kpis_mercado(posicoes).
+function calcularKpisMercado(posicoes) {
+    var avaliadas = posicoes.filter(function (p) { return p.rentabilidadePercentual !== null; });
+    var base = { avaliadas: avaliadas.length, semCotacao: posicoes.length - avaliadas.length };
+    if (!avaliadas.length) return Object.assign({}, base, { lucroPrejuizo: null, rentabilidade: null });
+
+    var valorInvestido = avaliadas.reduce(function (s, p) { return s + p.valorInvestido; }, 0);
+    var valorAtual = avaliadas.reduce(function (s, p) { return s + p.valorAtual; }, 0);
+    var lucroPrejuizo = valorAtual - valorInvestido;
+
+    return Object.assign({}, base, {
+        lucroPrejuizo: lucroPrejuizo,
+        rentabilidade: valorInvestido > 0 ? (lucroPrejuizo / valorInvestido) * 100 : 0,
+    });
+}
+
+// Porte de destaques_carteira(grupos).
+function destaquesCarteira(grupos) {
+    var todas = [];
+    grupos.forEach(function (g) { todas = todas.concat(g.posicoes); });
+    var avaliadas = todas.filter(function (p) { return p.rentabilidadePercentual !== null; });
+    var base = { total: todas.length, avaliadas: avaliadas.length, semCotacao: todas.length - avaliadas.length };
+
+    if (!avaliadas.length) return Object.assign({}, base, { melhor: null, pior: null, noLucro: 0, percentualNoLucro: 0 });
+
+    var melhor = avaliadas[0], pior = avaliadas[0];
+    avaliadas.forEach(function (p) {
+        if (p.rentabilidadePercentual > melhor.rentabilidadePercentual) melhor = p;
+        if (p.rentabilidadePercentual < pior.rentabilidadePercentual) pior = p;
+    });
+    var noLucro = avaliadas.filter(function (p) { return p.lucro; }).length;
+
+    return Object.assign({}, base, {
+        melhor: melhor, pior: pior, noLucro: noLucro,
+        percentualNoLucro: (noLucro / avaliadas.length) * 100,
+    });
+}
+
+// Porte de calcular_kpis(usuario).
+function calcularKpis(usuarioId) {
+    var posicoes = custoMedioPorAtivo(usuarioId);
+    var abertas = Object.keys(posicoes).map(function (k) { return posicoes[k]; }).filter(function (p) { return p.quantidade > 0; });
+    var valorInvestido = abertas.reduce(function (s, p) { return s + p.custoTotal; }, 0);
+    return { valorInvestido: valorInvestido, numPosicoes: abertas.length, lucroPrejuizo: null, rentabilidade: null };
+}
+
+// Porte de alocacao_por_classe(usuario).
+function alocacaoPorClasse(usuarioId) {
+    var posicoes = custoMedioPorAtivo(usuarioId);
+    var valorPorClasse = {};
+    Object.keys(posicoes).forEach(function (k) {
+        var p = posicoes[k];
+        if (p.quantidade > 0 && p.custoTotal > 0) {
+            var classe = p.ativo.classe;
+            valorPorClasse[classe] = (valorPorClasse[classe] || 0) + p.custoTotal;
+        }
+    });
+    var total = Object.keys(valorPorClasse).reduce(function (s, k) { return s + valorPorClasse[k]; }, 0);
+    if (total <= 0) return [];
+
+    var resultado = [];
+    CLASSES_ORDEM.forEach(function (classe) {
+        var valor = valorPorClasse[classe];
+        if (valor) resultado.push({ classe: classe, label: CLASSES[classe], valor: valor, percentual: (valor / total) * 100 });
+    });
+    return resultado;
+}
+
+// Porte de evolucao_mensal(usuario): custo de aquisição acumulado mês a mês,
+// preenchendo meses sem lançamento com o acumulado do mês anterior.
+function evolucaoMensal(usuarioId) {
+    var db = loadDB();
+    var transacoes = db.transacoes
+        .filter(function (t) { return t.usuarioId === usuarioId; })
+        .slice()
+        .sort(function (a, b) {
+            if (a.data < b.data) return -1;
+            if (a.data > b.data) return 1;
+            if (a.criadoEm !== b.criadoEm) return a.criadoEm - b.criadoEm;
+            return a.id - b.id;
+        });
+
+    var estadoPorAtivo = {};
+    var deltasPorMes = {}; // chave "ANO-MES" -> delta
+
+    transacoes.forEach(function (t) {
+        if (!estadoPorAtivo[t.ativoId]) estadoPorAtivo[t.ativoId] = { quantidade: 0, custoTotal: 0 };
+        var estado = estadoPorAtivo[t.ativoId];
+        var delta;
+
+        if (t.tipo === 'COMPRA') {
+            delta = t.quantidade * t.precoUnitario + t.corretagemTaxas;
+            estado.quantidade += t.quantidade;
+            estado.custoTotal += delta;
+        } else {
+            var precoMedio = estado.quantidade > 0 ? estado.custoTotal / estado.quantidade : 0;
+            delta = -(t.quantidade * precoMedio);
+            estado.quantidade -= t.quantidade;
+            estado.custoTotal += delta;
+        }
+
+        var partes = t.data.split('-');
+        var chave = partes[0] + '-' + parseInt(partes[1], 10);
+        deltasPorMes[chave] = (deltasPorMes[chave] || 0) + delta;
+    });
+
+    var chaves = Object.keys(deltasPorMes);
+    if (!chaves.length) return [];
+
+    function parseChave(c) { var p = c.split('-'); return { ano: parseInt(p[0], 10), mes: parseInt(p[1], 10) }; }
+    function antes(a, b) { return a.ano < b.ano || (a.ano === b.ano && a.mes < b.mes); }
+    function depois(a, b) { return a.ano > b.ano || (a.ano === b.ano && a.mes > b.mes); }
+
+    var min = parseChave(chaves[0]), max = parseChave(chaves[0]);
+    chaves.forEach(function (c) {
+        var atual = parseChave(c);
+        if (antes(atual, min)) min = atual;
+        if (depois(atual, max)) max = atual;
+    });
+
+    var hoje = new Date();
+    var hojeChave = { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 };
+    var ultimo = depois(hojeChave, max) ? hojeChave : max;
+
+    var resultado = [];
+    var acumulado = 0;
+    var ano = min.ano, mes = min.mes;
+    while (ano < ultimo.ano || (ano === ultimo.ano && mes <= ultimo.mes)) {
+        var chaveAtual = ano + '-' + mes;
+        acumulado += deltasPorMes[chaveAtual] || 0;
+        resultado.push({ label: MESES_PT[mes - 1] + '/' + String(ano).slice(2), valor: acumulado });
+        mes += 1;
+        if (mes > 12) { mes = 1; ano += 1; }
+    }
+    return resultado;
+}
+
+/* =================================================================
+   GRÁFICOS — porte fiel de investments/charts.py (geometria SVG)
+   ================================================================= */
+
+function round1(n) { return Math.round(n * 10) / 10; }
+
+function barPath(x, y, w, h, radius) {
+    var r = Math.min(radius, h / 2, w / 2);
+    if (r <= 0) return 'M' + x + ',' + (y + h) + ' L' + x + ',' + y + ' L' + (x + w) + ',' + y + ' L' + (x + w) + ',' + (y + h) + ' Z';
+    return 'M' + x + ',' + (y + h) + ' ' +
+        'L' + x + ',' + (y + r) + ' ' +
+        'Q' + x + ',' + y + ' ' + (x + r) + ',' + y + ' ' +
+        'L' + (x + w - r) + ',' + y + ' ' +
+        'Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + r) + ' ' +
+        'L' + (x + w) + ',' + (y + h) + ' Z';
+}
+
+function montarGraficoEvolucao(evolucao) {
+    if (!evolucao.length) return null;
+    var largura = 520, altura = 180;
+    var padEsq = 8, padDir = 8, padTopo = 20, padBaixo = 24;
+    var areaLargura = largura - padEsq - padDir;
+    var areaAltura = altura - padTopo - padBaixo;
+    var baselineY = padTopo + areaAltura;
+
+    var valores = evolucao.map(function (e) { return e.valor; });
+    var valorMax = Math.max.apply(null, valores);
+    if (!(valorMax > 0)) valorMax = 1;
+
+    var n = evolucao.length;
+    var gap = 4;
+    var slot = n ? areaLargura / n : 0;
+    var larguraBarra = n ? Math.max(Math.min(slot - gap, 24), 4) : 0;
+
+    var barras = evolucao.map(function (item, i) {
+        var alturaBarra = valorMax ? (item.valor / valorMax) * areaAltura : 0;
+        alturaBarra = Math.max(alturaBarra, 2);
+        var x = padEsq + i * slot + (slot - larguraBarra) / 2;
+        var y = baselineY - alturaBarra;
+        return {
+            path: barPath(round1(x), round1(y), round1(larguraBarra), round1(alturaBarra), 4),
+            xCentro: (x + larguraBarra / 2).toFixed(1),
+            label: item.label,
+            valor: item.valor,
+            valorLabelY: (y - 6).toFixed(1),
+        };
+    });
+
+    return { width: largura, height: altura, baselineY: baselineY, labelY: altura - 6, axisX2: largura - padDir, padEsq: padEsq, barras: barras };
+}
+
+function montarGraficoAlocacao(alocacao) {
+    if (!alocacao.length) return null;
+    var raio = 45, centro = 60;
+    var circunferencia = 2 * Math.PI * raio;
+    var gap = alocacao.length > 1 ? 2 : 0;
+
+    var offsetAcumulado = 0;
+    var fatias = alocacao.map(function (item) {
+        var fracao = item.percentual / 100;
+        var comprimento = Math.max(fracao * circunferencia - gap, 0);
+        var fatia = {
+            classe: item.classe, label: item.label, percentual: item.percentual, valor: item.valor,
+            cor: CORES_CLASSE[item.classe],
+            dasharray: comprimento.toFixed(2) + ' ' + (circunferencia - comprimento).toFixed(2),
+            dashoffset: (-offsetAcumulado).toFixed(2),
+        };
+        offsetAcumulado += fracao * circunferencia;
+        return fatia;
+    });
+
+    return { raio: raio, centro: centro, fatias: fatias, total: alocacao.reduce(function (s, i) { return s + i.valor; }, 0) };
+}
+
+// Estado transiente do gráfico de histórico interativo (página de detalhe do
+// ativo) — guarda os pontos já em coordenadas de viewBox SVG, pra
+// wireGraficoHistorico() achar o ponto mais próximo do mouse sem precisar
+// serializar nada em atributo HTML. Só existe um gráfico desse por vez na
+// tela, então uma variável de módulo é suficiente (mesmo padrão do
+// drawerState).
+var graficoHistoricoState = null;
+
+// Gráfico de linha do histórico de preço — único gráfico interativo do
+// projeto (os outros, barra/donut, só têm <title> nativo do navegador).
+// Cor da linha = mesma paleta categórica de CORES_CLASSE (a linha de uma
+// Ação usa o azul que já identifica "Ação" no donut/tabela de Posições —
+// consistência de identidade visual, não uma cor nova).
+function montarGraficoHistoricoHTML(historico, corLinha) {
+    var largura = 640, altura = 260;
+    var padEsq = 46, padDir = 12, padTopo = 16, padBaixo = 28;
+    var areaLargura = largura - padEsq - padDir;
+    var areaAltura = altura - padTopo - padBaixo;
+
+    var closes = historico.map(function (p) { return p.close; });
+    var minClose = Math.min.apply(null, closes);
+    var maxClose = Math.max.apply(null, closes);
+    if (minClose === maxClose) { minClose -= 1; maxClose += 1; }
+    var folga = (maxClose - minClose) * 0.12;
+    var yMin = minClose - folga, yMax = maxClose + folga;
+
+    var n = historico.length;
+    var pontos = historico.map(function (p, i) {
+        var x = padEsq + (n === 1 ? areaLargura / 2 : (i / (n - 1)) * areaLargura);
+        var y = padTopo + (1 - (p.close - yMin) / (yMax - yMin)) * areaAltura;
+        var anterior = i > 0 ? historico[i - 1].close : null;
+        var variacaoPct = anterior ? ((p.close - anterior) / anterior) * 100 : null;
+        return { x: x, y: y, close: p.close, date: p.date, variacaoPct: variacaoPct };
+    });
+
+    graficoHistoricoState = { pontos: pontos, largura: largura, altura: altura };
+
+    var linePath = pontos.map(function (p, i) {
+        return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
+    }).join(' ');
+
+    // eixo Y: 4 marcas (mín, 1/3, 2/3, máx da escala já com folga)
+    var yTicksHtml = [0, 1 / 3, 2 / 3, 1].map(function (f) {
+        var valor = yMin + f * (yMax - yMin);
+        var y = padTopo + (1 - f) * areaAltura;
+        return '<line x1="' + padEsq + '" y1="' + y.toFixed(1) + '" x2="' + (largura - padDir) + '" y2="' + y.toFixed(1) + '" class="hist-grid"/>' +
+            '<text x="' + (padEsq - 8) + '" y="' + (y + 3).toFixed(1) + '" class="hist-axis-label" text-anchor="end">' + fmt2(valor) + '</text>';
+    }).join('');
+
+    // eixo X: no máximo ~6 rótulos de data, sempre incluindo o último pregão.
+    // Primeiro rótulo ancorado à esquerda e último à direita (não centralizado)
+    // pra não vazar/cortar no viewBox — só os do meio podem centralizar.
+    var maxLabels = 6;
+    var passo = Math.max(1, Math.ceil(n / maxLabels));
+    var xLabelsHtml = pontos.filter(function (p, i) { return i % passo === 0 || i === n - 1; })
+        .map(function (p, idx, lista) {
+            var ancora = 'middle';
+            if (p === lista[0]) ancora = 'start';
+            else if (p === lista[lista.length - 1]) ancora = 'end';
+            return '<text x="' + p.x.toFixed(1) + '" y="' + (altura - 8) + '" class="hist-axis-label" text-anchor="' + ancora + '">' + formatDataCurta(p.date) + '</text>';
+        }).join('');
+
+    return '' +
+        '<div class="hist-chart-wrap">' +
+        '<svg viewBox="0 0 ' + largura + ' ' + altura + '" class="chart-svg hist-chart-svg" role="img" aria-label="Histórico de preço de fechamento">' +
+        yTicksHtml +
+        '<path d="' + linePath + '" class="hist-line" style="stroke: ' + corLinha + ';" fill="none"/>' +
+        xLabelsHtml +
+        '<line class="hist-crosshair" x1="0" y1="' + padTopo + '" x2="0" y2="' + (altura - padBaixo) + '" style="display:none;"></line>' +
+        '<circle class="hist-dot" r="5" style="display:none; fill: ' + corLinha + ';"></circle>' +
+        '<rect class="hist-hit-rect" x="' + padEsq + '" y="' + padTopo + '" width="' + areaLargura + '" height="' + areaAltura + '" fill="transparent"></rect>' +
+        '</svg>' +
+        '<div class="hist-tooltip" style="display:none;"></div>' +
+        '</div>';
+}
+
+// Liga o crosshair/tooltip do gráfico de histórico — chamado manualmente
+// logo depois de inserir o HTML da página de detalhe (não dá pra confiar só
+// em delegação de evento aqui porque pointermove precisa do
+// getBoundingClientRect() do SVG específico dessa página).
+function wireGraficoHistorico() {
+    var wrap = document.querySelector('.hist-chart-wrap');
+    if (!wrap || !graficoHistoricoState) return;
+
+    var svg = wrap.querySelector('.hist-chart-svg');
+    var hitRect = wrap.querySelector('.hist-hit-rect');
+    var crosshair = wrap.querySelector('.hist-crosshair');
+    var dot = wrap.querySelector('.hist-dot');
+    var tooltip = wrap.querySelector('.hist-tooltip');
+    var estado = graficoHistoricoState;
+
+    function atualizar(clientX) {
+        var rect = svg.getBoundingClientRect();
+        if (!rect.width) return;
+        var relX = clientX - rect.left;
+        var svgX = (relX / rect.width) * estado.largura;
+
+        var maisProximo = estado.pontos[0], menorDist = Infinity;
+        estado.pontos.forEach(function (p) {
+            var d = Math.abs(p.x - svgX);
+            if (d < menorDist) { menorDist = d; maisProximo = p; }
+        });
+
+        crosshair.setAttribute('x1', maisProximo.x);
+        crosshair.setAttribute('x2', maisProximo.x);
+        crosshair.style.display = '';
+        dot.setAttribute('cx', maisProximo.x);
+        dot.setAttribute('cy', maisProximo.y);
+        dot.style.display = '';
+
+        var pxX = (maisProximo.x / estado.largura) * rect.width;
+        var pxY = (maisProximo.y / estado.altura) * rect.height;
+
+        var variacaoHtml = '';
+        if (maisProximo.variacaoPct != null) {
+            var subiu = maisProximo.variacaoPct >= 0;
+            variacaoHtml = '<div class="hist-tooltip-variacao ' + (subiu ? 'up' : 'down') + '">' +
+                (subiu ? '+' : '') + fmt2(maisProximo.variacaoPct) + '% vs. dia anterior</div>';
+        }
+        tooltip.innerHTML =
+            '<div class="hist-tooltip-data"></div>' +
+            '<div class="hist-tooltip-valor"></div>' +
+            variacaoHtml;
+        tooltip.querySelector('.hist-tooltip-data').textContent = formatDataCurta(maisProximo.date);
+        tooltip.querySelector('.hist-tooltip-valor').textContent = 'R$ ' + fmt2(maisProximo.close);
+        tooltip.style.display = '';
+
+        var tooltipWidth = tooltip.offsetWidth || 130;
+        var left = pxX - tooltipWidth / 2;
+        left = Math.max(4, Math.min(left, rect.width - tooltipWidth - 4));
+        var tooltipHeight = tooltip.offsetHeight || 56;
+        var top = pxY - tooltipHeight - 12;
+        if (top < 4) top = pxY + 14;
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+    }
+
+    function esconder() {
+        crosshair.style.display = 'none';
+        dot.style.display = 'none';
+        tooltip.style.display = 'none';
+    }
+
+    hitRect.addEventListener('pointermove', function (ev) { atualizar(ev.clientX); });
+    hitRect.addEventListener('pointerleave', esconder);
+}
+
+/* =================================================================
+   MARKET DATA — porte fiel de investments/market_data.py (brapi.dev)
+   ================================================================= */
+
+// Fila global de requisições à brapi — o plano em uso só aceita 1 requisição
+// HTTP em voo por vez PRA QUALQUER endpoint (testado contra a API real:
+// /quote + /tickers em paralelo já derruba a conexão, não é só dentro do
+// mesmo endpoint). Por isso NENHUM fetch pra brapi.dev deve ser feito direto
+// — sempre passar por brapiFetch(), que encadeia tudo numa fila única,
+// mesmo chamadas vindas de partes independentes do app (ex.: cotação do
+// Resumo e rankings buscados via Promise.all no mesmo render).
+var brapiFilaPromise = Promise.resolve();
+
+function brapiFetch(url, opcoes) {
+    var resultado = brapiFilaPromise.then(function () { return fetch(url, opcoes); });
+    // a fila segue adiante mesmo se essa chamada falhar — senão uma falha
+    // trava todas as próximas pra sempre
+    brapiFilaPromise = resultado.then(function () {}, function () {});
+    return resultado;
+}
+
+function getCachedQuote(symbol) {
+    try {
+        var raw = localStorage.getItem(QUOTE_CACHE_KEY);
+        if (!raw) return null;
+        var cache = JSON.parse(raw);
+        var entry = cache[symbol];
+        if (!entry || Date.now() > entry.expiresAt) return null;
+        return entry.cotacao;
+    } catch (e) { return null; }
+}
+
+function setCachedQuote(symbol, cotacao) {
+    try {
+        var raw = localStorage.getItem(QUOTE_CACHE_KEY);
+        var cache = raw ? JSON.parse(raw) : {};
+        cache[symbol] = { cotacao: cotacao, expiresAt: Date.now() + CACHE_TTL_MS };
+        localStorage.setItem(QUOTE_CACHE_KEY, JSON.stringify(cache));
+    } catch (e) { /* localStorage cheio/bloqueado — segue sem cache */ }
+}
+
+// Porte de buscar_cotacoes(symbols): uma requisição HTTP por símbolo (não em
+// lote — mesma limitação de plano observada no backend Django: a brapi
+// recusa vários símbolos numa única chamada em planos gratuitos), com cache
+// de 5 minutos por símbolo e tolerância a falha individual (um ticker que
+// falhar simplesmente não entra no resultado, não derruba os outros).
+function buscarCotacoes(symbols) {
+    var resultado = {};
+    var pendentes = [];
+
+    symbols.forEach(function (symbol) {
+        var cached = getCachedQuote(symbol);
+        if (cached) resultado[symbol] = cached;
+        else pendentes.push(symbol);
+    });
+
+    function buscarUm(symbol) {
+        var url = BRAPI_QUOTE_URL + '?symbols=' + encodeURIComponent(symbol);
+        return brapiFetch(url, { headers: { Authorization: 'Bearer ' + BRAPI_TOKEN } })
+            .then(function (resp) {
+                if (!resp.ok) return null;
+                return resp.json();
+            })
+            .then(function (payload) {
+                if (!payload) return;
+                var item = (payload.results || [])[0];
+                if (!item || !item.data) return;
+                var data = item.data;
+                var cotacao = {
+                    symbol: symbol,
+                    nome: data.longName || data.shortName || symbol,
+                    moeda: data.currency || 'BRL',
+                    precoAtual: Number(data.regularMarketPrice) || 0,
+                    variacao: Number(data.regularMarketChange) || 0,
+                    variacaoPercentual: Number(data.regularMarketChangePercent) || 0,
+                    atualizadoEm: data.regularMarketTime || null,
+                    logoUrl: data.logourl || null,
+                };
+                setCachedQuote(symbol, cotacao);
+                resultado[symbol] = cotacao;
+
+                // Aproveita esta MESMA janela de atualização (cache da cotação
+                // expirou, é hora de atualizar) pra também esquentar o cache de
+                // histórico desse ticker, em segundo plano — sem `return`, não
+                // bloqueia buscarCotacoes(). Não é uma chamada a mais por
+                // visita: só dispara quando o histórico já teria expirado de
+                // qualquer forma, então ele acompanha o mesmo ciclo de 30min da
+                // cotação. Resultado: quando o usuário abre a página de
+                // detalhe do ativo, o histórico já está pronto no cache — não
+                // evita a requisição, evita o usuário esperar por ela.
+                if (!getCachedHistorico(symbol + ':1mo:1d')) {
+                    buscarHistorico(symbol, '1mo', '1d');
+                }
+            })
+            .catch(function () { /* símbolo inválido ou falha de rede pontual — só não entra no resultado */ });
+    }
+
+    var cadeia = Promise.resolve();
+    pendentes.forEach(function (symbol) {
+        cadeia = cadeia.then(function () { return buscarUm(symbol); });
+    });
+    return cadeia.then(function () { return resultado; });
+}
+
+function getCachedHistorico(chave) {
+    try {
+        var raw = localStorage.getItem(HIST_CACHE_KEY);
+        if (!raw) return null;
+        var cache = JSON.parse(raw);
+        var entry = cache[chave];
+        if (!entry || Date.now() > entry.expiresAt) return null;
+        return entry.pontos;
+    } catch (e) { return null; }
+}
+
+function setCachedHistorico(chave, pontos) {
+    try {
+        var raw = localStorage.getItem(HIST_CACHE_KEY);
+        var cache = raw ? JSON.parse(raw) : {};
+        cache[chave] = { pontos: pontos, expiresAt: Date.now() + CACHE_TTL_MS };
+        localStorage.setItem(HIST_CACHE_KEY, JSON.stringify(cache));
+    } catch (e) { /* localStorage cheio/bloqueado — segue sem cache */ }
+}
+
+// Histórico de fechamento diário — endpoint /stocks/historical da brapi.
+// Descoberto via o assistente do dashboard da brapi (não estava óbvio na doc
+// pública): aceita `range`/`interval` (ex.: "1mo"/"1d" = ~20 pregões, um por
+// dia útil) e, ao contrário de /stocks/quote, aceitou vários `symbols` numa
+// mesma chamada quando testado — mas aqui só pedimos 1 ticker por vez mesmo,
+// que é tudo que a página de detalhe precisa.
+function buscarHistorico(symbol, range, interval) {
+    range = range || '1mo';
+    interval = interval || '1d';
+    var chave = symbol + ':' + range + ':' + interval;
+    var cached = getCachedHistorico(chave);
+    if (cached) return Promise.resolve(cached);
+
+    var url = BRAPI_HISTORICAL_URL + '?symbols=' + encodeURIComponent(symbol) + '&range=' + range + '&interval=' + interval;
+    return brapiFetch(url, { headers: { Authorization: 'Bearer ' + BRAPI_TOKEN } })
+        .then(function (resp) { return resp.ok ? resp.json() : null; })
+        .then(function (payload) {
+            if (!payload) return [];
+            var item = (payload.results || [])[0];
+            var lista = (item && item.data && item.data.historicalDataPrice) || [];
+            // a brapi retorna do mais recente pro mais antigo — inverte pra
+            // ordem cronológica (mais fácil de desenhar e de calcular
+            // variação dia-a-dia depois)
+            var pontos = lista.slice().reverse().map(function (p) {
+                return { date: p.date, close: p.close };
+            });
+            setCachedHistorico(chave, pontos);
+            return pontos;
+        })
+        .catch(function () { return []; });
+}
+
+function getCachedRanking(chave) {
+    try {
+        var raw = localStorage.getItem(RANKING_CACHE_KEY);
+        if (!raw) return null;
+        var cache = JSON.parse(raw);
+        var entry = cache[chave];
+        if (!entry || Date.now() > entry.expiresAt) return null;
+        return entry.lista;
+    } catch (e) { return null; }
+}
+
+function setCachedRanking(chave, lista) {
+    try {
+        var raw = localStorage.getItem(RANKING_CACHE_KEY);
+        var cache = raw ? JSON.parse(raw) : {};
+        cache[chave] = { lista: lista, expiresAt: Date.now() + CACHE_TTL_MS };
+        localStorage.setItem(RANKING_CACHE_KEY, JSON.stringify(cache));
+    } catch (e) { /* localStorage cheio/bloqueado — segue sem cache */ }
+}
+
+// Ranking geral (não é ticker por ticker) — endpoint /v2/tickers, descoberto
+// testando contra a API real (a doc pública não lista os valores aceitos de
+// `sortBy`; o enum exato só apareceu no corpo de um erro 400: symbol, name,
+// close, change, volume, marketCap). Filtra fora os tickers do mercado
+// fracionário (ex.: PETR4F) — são a mesma empresa duplicada com volume
+// irrisório, só ruído num ranking.
+function buscarRanking(params) {
+    var chave = JSON.stringify(params);
+    var cached = getCachedRanking(chave);
+    if (cached) return Promise.resolve(cached);
+
+    var qs = Object.keys(params).map(function (k) { return k + '=' + encodeURIComponent(params[k]); }).join('&');
+    var url = BRAPI_TICKERS_URL + '?' + qs;
+    return brapiFetch(url, { headers: { Authorization: 'Bearer ' + BRAPI_TOKEN } })
+        .then(function (resp) { return resp.ok ? resp.json() : null; })
+        .then(function (payload) {
+            if (!payload) return [];
+            var lista = (payload.results || []).filter(function (r) { return !/[0-9]F$/.test(r.symbol); });
+            setCachedRanking(chave, lista);
+            return lista;
+        })
+        .catch(function () { return []; });
+}
+
+// Some empresas aparecem 2x no ranking de valor de mercado (PETR4 e PETR3 são
+// a mesma Petrobras, classes de ação diferentes) — mantém só a primeira
+// ocorrência (a mais líquida, já que a lista vem ordenada) por nome de
+// empresa, senão o top 5 vira top 3 de empresas repetidas.
+function dedupePorEmpresa(lista) {
+    var vistos = {};
+    return lista.filter(function (r) {
+        var chave = r.name || r.longName || r.symbol;
+        if (vistos[chave]) return false;
+        vistos[chave] = true;
+        return true;
+    });
+}
+
+// Só 2 rankings — os únicos que a API entrega com dado real e limpo no plano
+// gratuito. Dividend yield (Ações/FIIs), receita (Ações) e valor patrimonial
+// (FIIs) foram testados e descartados: dividend yield exige o endpoint de
+// dividendos (plano Pro); valor patrimonial de FII vem `null` pra 100% dos
+// fundos testados (KNRI11, HGLG11, MXRF11, VISC11, XPML11) — não é
+// limitação de plano, o dado não existe nessa base pra fundos.
+// Promise.all aqui é seguro apesar de serem 2 chamadas de rede — quem
+// serializa de verdade é a fila global em brapiFetch() (ver seção MARKET
+// DATA); sem ela, 2 chamadas simultâneas a /tickers derrubam a conexão
+// (testado contra a API real — mesma família de restrição do /quote, só que
+// aqui é "1 requisição em voo por vez" pro token inteiro, não por ativo).
+function buscarRankingsResumo() {
+    return Promise.all([
+        buscarRanking({ type: 'stock', subType: 'stock', sortBy: 'marketCap', sortOrder: 'desc', limit: 10 }),
+        // a API só ordena FII por `volume` (quantidade de cotas negociadas),
+        // não por liquidez em R$ (o que a gente exibe — volume × preço). Busca
+        // um grupo maior por volume como candidato e reordena de verdade pelo
+        // valor financeiro abaixo, senão a ordem mostrada na tela não bate com
+        // o valor mostrado (ex.: um FII de cota mais cara pode ter menos cotas
+        // negociadas mas mais dinheiro girado no dia).
+        buscarRanking({ subType: 'fii', sortBy: 'volume', sortOrder: 'desc', limit: 30 }),
+    ]).then(function (r) {
+        var fiisPorLiquidezReal = r[1].slice().sort(function (a, b) {
+            var liqA = (a.quote.volume || 0) * (a.quote.lastPrice || 0);
+            var liqB = (b.quote.volume || 0) * (b.quote.lastPrice || 0);
+            return liqB - liqA;
+        });
+        return {
+            acaoValorMercado: dedupePorEmpresa(r[0]).slice(0, 5),
+            fiiLiquidez: fiisPorLiquidezReal.slice(0, 5),
+        };
+    });
+}
+
+/* =================================================================
+   FORMATAÇÃO — mesma convenção pt-BR do template Django (vírgula decimal,
+   sem separador de milhar — floatformat do Django não agrupa milhar aqui)
+   ================================================================= */
+
+function fmt2(n) { return (Number(n) || 0).toFixed(2).replace('.', ','); }
+function fmt1(n) { return (Number(n) || 0).toFixed(1).replace('.', ','); }
+function fmt0(n) { return String(Math.round(Number(n) || 0)); }
+
+// Pros valores de ranking (market cap, liquidez em R$) — números na casa dos
+// bilhões não cabem em "R$ 649623747413,00". Abrevia igual o resto do
+// mercado financeiro brasileiro faz (B/M/mil).
+function formatValorGrande(n) {
+    n = Number(n) || 0;
+    var abs = Math.abs(n);
+    if (abs >= 1e9) return fmt2(n / 1e9) + ' B';
+    if (abs >= 1e6) return fmt2(n / 1e6) + ' M';
+    if (abs >= 1e3) return fmt2(n / 1e3) + ' mil';
+    return fmt2(n);
+}
+
+// Porte do filtro de template quantidade_fmt: inteiro pra Ação/FII (B3 não
+// fraciona ação/cota), decimal sem zero à direita pro resto.
+function formatQuantidade(qtd, classe) {
+    if (CLASSES_INTEIRAS[classe]) return fmt0(qtd);
+    var s = qtd.toFixed(8);
+    if (s.indexOf('.') !== -1) s = s.replace(/0+$/, '').replace(/\.$/, '');
+    return s.replace('.', ',');
+}
+
+// Porte de forms._formatar_quantidade: usado só na mensagem de erro de venda
+// a descoberto — no Python original isso NÃO passa pelo l10n do Django (é
+// string pura), então mantém ponto, não vírgula. Fidelidade ao original.
+function formatarQuantidadeLivre(valor) {
+    var s = valor.toFixed(8);
+    if (s.indexOf('.') !== -1) s = s.replace(/0+$/, '').replace(/\.$/, '');
+    return s;
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+
+// `date` do endpoint historical vem em segundos UNIX (UTC) — usa getUTC* pra
+// não deslocar o dia por causa do fuso local.
+function formatDataCurta(unixSegundos) {
+    var d = new Date(unixSegundos * 1000);
+    var dia = String(d.getUTCDate()).padStart(2, '0');
+    var mes = String(d.getUTCMonth() + 1).padStart(2, '0');
+    return dia + '/' + mes;
+}
+
+/* =================================================================
+   MENSAGENS (flash messages)
+   ================================================================= */
+
+function showMessage(text, tag) {
+    var ul = document.getElementById('messages');
+    var li = document.createElement('li');
+    li.className = 'message ' + (tag || '');
+    li.textContent = text;
+    ul.appendChild(li);
+    setTimeout(function () { li.remove(); }, 4500);
+}
+
+/* =================================================================
+   VALIDAÇÃO E PERSISTÊNCIA DE TRANSAÇÃO — porte de forms.TransacaoForm
+   ================================================================= */
+
+function validarTransacao(usuarioId, dados, editId) {
+    var erros = {};
+    var ticker = (dados.ticker || '').toUpperCase().trim();
+    if (!ticker) erros.ticker = 'Este campo é obrigatório.';
+
+    var quantidade = parseFloat(dados.quantidade);
+    if (dados.quantidade === '' || dados.quantidade == null || isNaN(quantidade)) erros.quantidade = 'Este campo é obrigatório.';
+    else if (quantidade <= 0) erros.quantidade = 'A quantidade deve ser maior que zero.';
+
+    var precoUnitario = parseFloat(dados.preco_unitario);
+    if (dados.preco_unitario === '' || dados.preco_unitario == null || isNaN(precoUnitario)) erros.preco_unitario = 'Este campo é obrigatório.';
+    else if (precoUnitario <= 0) erros.preco_unitario = 'O preço unitário deve ser maior que zero.';
+
+    var corretagemTaxasStr = dados.corretagem_taxas;
+    var corretagemTaxas = corretagemTaxasStr === '' || corretagemTaxasStr == null ? 0 : parseFloat(corretagemTaxasStr);
+    if (isNaN(corretagemTaxas)) erros.corretagem_taxas = 'Valor inválido.';
+    else if (corretagemTaxas < 0) erros.corretagem_taxas = 'As taxas não podem ser negativas.';
+
+    if (!dados.tipo) erros.tipo = 'Este campo é obrigatório.';
+    if (!dados.data) erros.data = 'Este campo é obrigatório.';
+
+    var db = loadDB();
+    var ativoExistente = ticker ? db.ativos.filter(function (a) { return a.ticker === ticker; })[0] : null;
+
+    if (ticker && !dados.classe_ativo && !ativoExistente) {
+        erros.classe_ativo = 'Obrigatório para cadastrar um ativo novo.';
+    }
+
+    if (ticker && dados.tipo === 'VENDA' && !isNaN(quantidade) && quantidade > 0) {
+        var disponivel = ativoExistente ? quantidadeDisponivel(usuarioId, ativoExistente.id, editId) : 0;
+        if (quantidade > disponivel) {
+            erros.quantidade = 'Você não pode vender mais do que possui: ' + formatarQuantidadeLivre(disponivel) +
+                ' unidade(s) de ' + ticker + ' disponível(is) hoje. Este projeto ainda não trabalha com venda a descoberto.';
+        }
+    }
+
+    return erros;
+}
+
+function salvarTransacao(usuarioId, dados, editId) {
+    var db = loadDB();
+    var ticker = dados.ticker.toUpperCase().trim();
+    var ativo = db.ativos.filter(function (a) { return a.ticker === ticker; })[0];
+    if (!ativo) {
+        ativo = { id: db.nextId++, ticker: ticker, classe: dados.classe_ativo || 'ACAO', moeda: 'BRL', criadoEm: Date.now() };
+        db.ativos.push(ativo);
+    }
+
+    var quantidade = parseFloat(dados.quantidade);
+    var precoUnitario = parseFloat(dados.preco_unitario);
+    var corretagemTaxas = dados.corretagem_taxas ? parseFloat(dados.corretagem_taxas) : 0;
+
+    if (editId) {
+        var t = db.transacoes.filter(function (x) { return x.id === editId; })[0];
+        t.ativoId = ativo.id;
+        t.tipo = dados.tipo;
+        t.quantidade = quantidade;
+        t.precoUnitario = precoUnitario;
+        t.data = dados.data;
+        t.corretagemTaxas = corretagemTaxas;
+    } else {
+        db.transacoes.push({
+            id: db.nextId++, usuarioId: usuarioId, ativoId: ativo.id, tipo: dados.tipo,
+            quantidade: quantidade, precoUnitario: precoUnitario, data: dados.data,
+            corretagemTaxas: corretagemTaxas, criadoEm: Date.now(),
+        });
+    }
+    saveDB(db);
+}
+
+function excluirTransacao(id) {
+    var db = loadDB();
+    db.transacoes = db.transacoes.filter(function (t) { return t.id !== id; });
+    saveDB(db);
+}
+
+/* =================================================================
+   ESTADO TRANSIENTE DE UI (não persiste — só durante a navegação)
+   ================================================================= */
+
+var drawerState = null; // null = fechado/vazio; ou {open, editId, values, errors}
+var rankingTabAtiva = 'ACAO'; // aba ativa do widget "Rankings de ativos" do Resumo — 'ACAO' ou 'FII'
+
+/* =================================================================
+   COMPONENTES DE TEMPLATE (HTML como string, mesma marcação dos templates
+   Django originais)
+   ================================================================= */
+
+function topbarHTML(active) {
+    function item(rota, label) {
+        var cls = 'nav-item' + (active === rota ? ' active' : '');
+        return '<a href="#' + rota + '" class="' + cls + '">' + label + '</a>';
+    }
+    return '' +
+        '<header class="topbar">' +
+        '<div class="brand"><span class="brand-mark">D</span><span class="brand-name">Dash Finance</span></div>' +
+        '<nav class="main-nav">' + item('/dashboard', 'Resumo') + item('/posicoes', 'Posições') + item('/transacoes', 'Lançamentos') + '</nav>' +
+        '<div class="topbar-actions">' +
+        '<button type="button" class="button primary" data-drawer-open="drawer-transacao">+ Novo lançamento</button>' +
+        '<button type="button" class="button ghost" id="btn-logout">Sair</button>' +
+        '</div></header>';
+}
+
+// Porte de _drawer_transacao.html. `state` é o drawerState transiente (ou
+// null pra fechado/vazio).
+function drawerTransacaoHTML(state) {
+    state = state || {};
+    var open = !!state.open;
+    var editId = state.editId || null;
+    var v = state.values || {};
+    var e = state.errors || {};
+
+    var classeOptions = CLASSES_ORDEM.map(function (c) {
+        var sel = (v.classeAtivo ? v.classeAtivo === c : c === 'ACAO') ? ' selected' : '';
+        return '<option value="' + c + '"' + sel + '>' + CLASSES[c] + '</option>';
+    }).join('');
+
+    var tipoOptions = '<option value=""' + (v.tipo ? '' : ' selected') + '>---------</option>' +
+        '<option value="COMPRA"' + (v.tipo === 'COMPRA' ? ' selected' : '') + '>Compra</option>' +
+        '<option value="VENDA"' + (v.tipo === 'VENDA' ? ' selected' : '') + '>Venda</option>';
+
+    return '' +
+        '<div class="drawer-overlay' + (open ? ' open' : '') + '"></div>' +
+        '<div id="drawer-transacao" class="drawer' + (open ? ' open' : '') + '" role="dialog" aria-modal="true" aria-labelledby="drawer-transacao-title">' +
+        '<form id="form-transacao" class="drawer-form" data-edit-id="' + (editId || '') + '">' +
+        '<div class="drawer-header">' +
+        '<h2 id="drawer-transacao-title">' + (editId ? 'Editar lançamento' : 'Novo lançamento') + '</h2>' +
+        '<button type="button" class="drawer-close" data-drawer-close aria-label="Fechar">&times;</button>' +
+        '</div>' +
+        '<div class="drawer-body">' +
+        (e._non_field ? '<div class="errors"><ul><li>' + escapeHtml(e._non_field) + '</li></ul></div>' : '') +
+        '<div class="field"><label for="f_ticker">Ticker</label>' +
+        '<input type="text" name="ticker" id="f_ticker" maxlength="20" value="' + escapeHtml(v.ticker || '') + '">' +
+        (e.ticker ? '<p class="field-error">' + escapeHtml(e.ticker) + '</p>' : '') + '</div>' +
+        '<div class="field"><label for="f_classe_ativo">Classe do ativo</label>' +
+        '<select name="classe_ativo" id="f_classe_ativo">' + classeOptions + '</select>' +
+        '<p class="field-help">Só é usado se o ticker ainda não existir no catálogo.</p>' +
+        (e.classe_ativo ? '<p class="field-error">' + escapeHtml(e.classe_ativo) + '</p>' : '') + '</div>' +
+        '<div class="field"><label for="f_tipo">Tipo</label>' +
+        '<select name="tipo" id="f_tipo">' + tipoOptions + '</select>' +
+        (e.tipo ? '<p class="field-error">' + escapeHtml(e.tipo) + '</p>' : '') + '</div>' +
+        '<div class="field"><label for="f_quantidade">Quantidade</label>' +
+        '<input type="number" name="quantidade" id="f_quantidade" step="1e-8" value="' + (v.quantidade != null ? v.quantidade : '') + '">' +
+        (e.quantidade ? '<p class="field-error">' + escapeHtml(e.quantidade) + '</p>' : '') + '</div>' +
+        '<div class="field"><label for="f_preco_unitario">Preço unitário</label>' +
+        '<input type="number" name="preco_unitario" id="f_preco_unitario" step="1e-8" value="' + (v.preco_unitario != null ? v.preco_unitario : '') + '">' +
+        (e.preco_unitario ? '<p class="field-error">' + escapeHtml(e.preco_unitario) + '</p>' : '') + '</div>' +
+        '<div class="field"><label for="f_data">Data</label>' +
+        '<input type="date" name="data" id="f_data" value="' + escapeHtml(v.data || '') + '">' +
+        (e.data ? '<p class="field-error">' + escapeHtml(e.data) + '</p>' : '') + '</div>' +
+        '<div class="field"><label for="f_corretagem_taxas">Corretagem e taxas</label>' +
+        '<input type="number" name="corretagem_taxas" id="f_corretagem_taxas" step="0.01" value="' + (v.corretagem_taxas != null ? v.corretagem_taxas : '0') + '">' +
+        (e.corretagem_taxas ? '<p class="field-error">' + escapeHtml(e.corretagem_taxas) + '</p>' : '') + '</div>' +
+        '</div>' +
+        '<div class="drawer-footer">' +
+        '<button type="button" class="button ghost" data-drawer-close>Cancelar</button>' +
+        '<button type="submit" class="button primary">Salvar lançamento</button>' +
+        '</div></form></div>';
+}
+
+function emptyIllustrationBars() {
+    return '<svg class="empty-illustration" viewBox="0 0 96 64" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+        '<rect x="2" y="34" width="12" height="28" rx="2" fill="currentColor" opacity="0.35"/>' +
+        '<rect x="20" y="20" width="12" height="42" rx="2" fill="currentColor" opacity="0.45"/>' +
+        '<rect x="38" y="40" width="12" height="22" rx="2" fill="currentColor" opacity="0.3"/>' +
+        '<rect x="56" y="10" width="12" height="52" rx="2" fill="currentColor" opacity="0.55"/>' +
+        '<rect x="74" y="26" width="12" height="36" rx="2" fill="currentColor" opacity="0.4"/></svg>';
+}
+
+function emptyIllustrationDonut() {
+    return '<svg class="empty-illustration" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+        '<circle cx="32" cy="32" r="26" stroke="currentColor" stroke-width="10" opacity="0.2"/>' +
+        '<path d="M32 6a26 26 0 0 1 22.5 39" stroke="currentColor" stroke-width="10" stroke-linecap="round" opacity="0.5"/></svg>';
+}
+
+/* =================================================================
+   PÁGINAS
+   ================================================================= */
+
+function authIllustrationSVG(gradId) {
+    return '<svg class="auth-illustration" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+        '<path d="M0 96 L40 80 L80 88 L120 56 L160 64 L200 32 L240 44 L280 12 L320 24" stroke="rgba(255,255,255,0.55)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path d="M0 96 L40 80 L80 88 L120 56 L160 64 L200 32 L240 44 L280 12 L320 24 L320 120 L0 120 Z" fill="url(#' + gradId + ')" opacity="0.35"/>' +
+        '<defs><linearGradient id="' + gradId + '" x1="0" y1="0" x2="0" y2="120" gradientUnits="userSpaceOnUse">' +
+        '<stop stop-color="#ffffff" stop-opacity="0.5"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/>' +
+        '</linearGradient></defs></svg>';
+}
+
+function renderLogin(erroLogin) {
+    return '' +
+        '<div class="auth-shell"><aside class="auth-brand">' +
+        '<div class="brand-mark-lg">D</div>' +
+        '<h2>Decisões de investimento pautadas em dados, não em achismo.</h2>' +
+        '<p>Registre suas compras e vendas, acompanhe rentabilidade real e deixe as métricas fazerem o trabalho pesado.</p>' +
+        authIllustrationSVG('auth-gradient') +
+        '</aside><div class="auth-form-area"><div class="auth-form-wrap">' +
+        '<h1>Entrar</h1><p class="auth-subtitle">Acesse sua carteira de investimentos.</p>' +
+        (erroLogin ? '<div class="errors">' + escapeHtml(erroLogin) + '</div>' : '') +
+        '<form id="form-login">' +
+        '<div class="field"><label for="id_username">Usuário</label><input type="text" name="username" id="id_username" required autofocus></div>' +
+        '<div class="field"><label for="id_password">Senha</label><input type="password" name="password" id="id_password" required></div>' +
+        '<button type="submit" class="button primary">Entrar</button>' +
+        '</form>' +
+        '<p class="hint">Não tem conta? <a href="#/register">Criar nova conta</a>.</p>' +
+        '</div></div></div>';
+}
+
+function renderRegister(errosRegister, valoresRegister) {
+    var e = errosRegister || {};
+    var v = valoresRegister || {};
+    var listaErros = Object.keys(e).map(function (k) { return '<li>' + escapeHtml(e[k]) + '</li>'; }).join('');
+
+    return '' +
+        '<div class="auth-shell"><aside class="auth-brand">' +
+        '<div class="brand-mark-lg">D</div>' +
+        '<h2>Sua carteira, suas métricas, seu controle.</h2>' +
+        '<p>Crie sua conta local para começar a registrar ativos e acompanhar sua evolução patrimonial.</p>' +
+        authIllustrationSVG('auth-gradient-register') +
+        '</aside><div class="auth-form-area"><div class="auth-form-wrap">' +
+        '<h1>Criar conta</h1><p class="auth-subtitle">Cadastre um usuário para acessar seu dashboard local.</p>' +
+        (listaErros ? '<div class="errors"><strong>Corrija os erros abaixo:</strong><ul>' + listaErros + '</ul></div>' : '') +
+        '<form id="form-register" novalidate>' +
+        '<div class="field"><label for="id_username">Nome de usuário</label><input type="text" name="username" id="id_username" maxlength="150" autofocus value="' + escapeHtml(v.username || '') + '"></div>' +
+        '<div class="field"><label for="id_email">Email</label><input type="email" name="email" id="id_email" maxlength="320" value="' + escapeHtml(v.email || '') + '"></div>' +
+        '<div class="field"><label for="id_password1">Senha</label><input type="password" name="password1" id="id_password1" autocomplete="new-password"></div>' +
+        '<div class="field"><label for="id_password2">Repetir senha</label><input type="password" name="password2" id="id_password2" autocomplete="new-password"></div>' +
+        '<button type="submit" class="button primary">Cadastrar</button>' +
+        '</form>' +
+        '<p class="hint">Já possui conta? <a href="#/login">Entrar</a></p>' +
+        '</div></div></div>';
+}
+
+// Monta o painel "Rankings de ativos" (abas Ações/FIIs) a partir do retorno
+// de buscarRankingsResumo(). Os dois rankings já vêm buscados de antemão —
+// trocar de aba é só re-render, não dispara requisição nova (cache de 30min
+// já tem os dois).
+function renderRankingsHTML(rankings) {
+    var acaoAtiva = rankingTabAtiva === 'ACAO';
+    var lista = acaoAtiva ? rankings.acaoValorMercado : rankings.fiiLiquidez;
+    var titulo = acaoAtiva ? 'Maiores valores de mercado' : 'Maior liquidez diária';
+
+    var itensHtml;
+    if (lista && lista.length) {
+        itensHtml = lista.map(function (r, i) {
+            var valor = acaoAtiva
+                ? formatValorGrande(r.quote.marketCap)
+                : formatValorGrande((r.quote.volume || 0) * (r.quote.lastPrice || 0));
+            var logo;
+            if (r.logoUrl) {
+                var fallback = escapeHtml(r.symbol.slice(0, 2));
+                logo = '<img src="' + escapeHtml(r.logoUrl) + '" alt="" class="ativo-logo" loading="lazy" data-fallback="' + fallback + '" ' +
+                    'onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'ativo-logo ativo-logo-fallback\',textContent:this.dataset.fallback}))">';
+            } else {
+                logo = '<span class="ativo-logo ativo-logo-fallback">' + escapeHtml(r.symbol.slice(0, 2)) + '</span>';
+            }
+            return '<li class="ranking-item"><a href="#/ativo/' + encodeURIComponent(r.symbol) + '" class="ranking-item-link">' +
+                '<span class="ranking-pos' + (i === 0 ? ' primeiro' : '') + '">#' + (i + 1) + '</span>' +
+                logo +
+                '<span class="ranking-info"><span class="ticker">' + escapeHtml(r.symbol) + '</span>' +
+                '<span class="nome">' + escapeHtml(r.longName || r.name || '') + '</span></span>' +
+                '<span class="ranking-valor">R$ ' + valor + '</span>' +
+                '</a></li>';
+        }).join('');
+    } else {
+        itensHtml = '<li class="ranking-empty">Não consegui carregar esse ranking agora — tenta de novo em instantes.</li>';
+    }
+
+    return '' +
+        '<div class="rankings-panel">' +
+        '<div class="rankings-panel-header">' +
+        '<h2>Rankings de ativos</h2>' +
+        '<div class="ranking-tabs">' +
+        '<button type="button" class="ranking-tab' + (acaoAtiva ? ' active' : '') + '" data-ranking-tab="ACAO">Ações</button>' +
+        '<button type="button" class="ranking-tab' + (!acaoAtiva ? ' active' : '') + '" data-ranking-tab="FII">FIIs</button>' +
+        '</div></div>' +
+        '<div class="ranking-card-header"><h3>' + titulo + '</h3></div>' +
+        '<ul class="ranking-list">' + itensHtml + '</ul>' +
+        '</div>';
+}
+
+function renderDashboard(user) {
+    var posicoes = posicoesAtuais(user.id);
+    var tickers = Array.from(new Set(posicoes.map(function (p) { return p.ativo.ticker; })));
+
+    var cotacaoPromise = tickers.length ? buscarCotacoes(tickers) : Promise.resolve({});
+    var rankingsPromise = buscarRankingsResumo();
+
+    return Promise.all([cotacaoPromise, rankingsPromise]).then(function (resultadosPromise) {
+        var cotacoes = resultadosPromise[0];
+        var rankings = resultadosPromise[1];
+        aplicarCotacoesLista(posicoes, cotacoes);
+
+        var kpis = calcularKpis(user.id);
+        Object.assign(kpis, calcularKpisMercado(posicoes));
+        kpis.saldoAtual = kpis.lucroPrejuizo !== null ? kpis.valorInvestido + kpis.lucroPrejuizo : kpis.valorInvestido;
+
+        var evolucaoChart = montarGraficoEvolucao(evolucaoMensal(user.id));
+        var alocacaoChart = montarGraficoAlocacao(alocacaoPorClasse(user.id));
+
+        var evolucaoHTML;
+        if (evolucaoChart) {
+            var barrasHTML = evolucaoChart.barras.map(function (b, i) {
+                var labelValor = i === evolucaoChart.barras.length - 1
+                    ? '<text x="' + b.xCentro + '" y="' + b.valorLabelY + '" class="chart-bar-label" text-anchor="middle">R$ ' + fmt0(b.valor) + '</text>'
+                    : '';
+                return '<path d="' + b.path + '" class="chart-bar"><title>' + escapeHtml(b.label) + ': R$ ' + fmt2(b.valor) + '</title></path>' +
+                    labelValor +
+                    '<text x="' + b.xCentro + '" y="' + evolucaoChart.labelY + '" class="chart-x-label" text-anchor="middle">' + escapeHtml(b.label) + '</text>';
+            }).join('');
+            evolucaoHTML = '<div class="empty-panel chart-panel"><p class="empty-title chart-panel-title">Evolução do patrimônio</p>' +
+                '<svg viewBox="0 0 ' + evolucaoChart.width + ' ' + evolucaoChart.height + '" class="chart-svg" role="img" aria-label="Evolução do valor investido mês a mês">' +
+                '<line x1="' + evolucaoChart.padEsq + '" y1="' + evolucaoChart.baselineY + '" x2="' + evolucaoChart.axisX2 + '" y2="' + evolucaoChart.baselineY + '" class="chart-axis"/>' +
+                barrasHTML + '</svg></div>';
+        } else {
+            evolucaoHTML = '<div class="empty-panel">' + emptyIllustrationBars() +
+                '<p class="empty-title">Evolução do patrimônio</p>' +
+                '<p class="empty-text">Assim que você registrar lançamentos, o gráfico de evolução aparece aqui.</p></div>';
+        }
+
+        var alocacaoHTML;
+        if (alocacaoChart) {
+            var fatiasHTML = alocacaoChart.fatias.map(function (f) {
+                return '<circle cx="' + alocacaoChart.centro + '" cy="' + alocacaoChart.centro + '" r="' + alocacaoChart.raio + '" fill="none" stroke="' + f.cor + '" stroke-width="14" ' +
+                    'stroke-dasharray="' + f.dasharray + '" stroke-dashoffset="' + f.dashoffset + '" transform="rotate(-90 ' + alocacaoChart.centro + ' ' + alocacaoChart.centro + ')">' +
+                    '<title>' + escapeHtml(f.label) + ': ' + fmt1(f.percentual) + '%</title></circle>';
+            }).join('');
+            var legendaHTML = alocacaoChart.fatias.map(function (f) {
+                return '<li><span class="legend-swatch" style="background:' + f.cor + '"></span>' + escapeHtml(f.label) + ' — ' + fmt1(f.percentual) + '%</li>';
+            }).join('');
+            alocacaoHTML = '<div class="empty-panel chart-panel"><p class="empty-title chart-panel-title">Ativos na carteira</p>' +
+                '<div class="donut-wrap"><svg viewBox="0 0 120 120" class="chart-svg-donut" role="img" aria-label="Alocação por classe de ativo">' +
+                '<circle cx="' + alocacaoChart.centro + '" cy="' + alocacaoChart.centro + '" r="' + alocacaoChart.raio + '" fill="none" stroke="var(--color-neutral-bg)" stroke-width="14"/>' +
+                fatiasHTML +
+                '<text x="' + alocacaoChart.centro + '" y="' + (alocacaoChart.centro - 3) + '" text-anchor="middle" class="donut-total">R$ ' + fmt0(alocacaoChart.total) + '</text>' +
+                '<text x="' + alocacaoChart.centro + '" y="' + (alocacaoChart.centro + 10) + '" text-anchor="middle" class="donut-total-label">total</text>' +
+                '</svg><ul class="chart-legend">' + legendaHTML + '</ul></div></div>';
+        } else {
+            alocacaoHTML = '<div class="empty-panel">' + emptyIllustrationDonut() +
+                '<p class="empty-title">Ativos na carteira</p>' +
+                '<p class="empty-text">A distribuição por classe de ativo aparece aqui após seu primeiro lançamento.</p></div>';
+        }
+
+        var lucroClasse = kpis.lucroPrejuizo !== null ? (kpis.lucroPrejuizo > 0 ? 'up' : 'down') : '';
+        var lucroBloco = kpis.lucroPrejuizo !== null
+            ? '<span class="kpi-value ' + (kpis.lucroPrejuizo > 0 ? 'up' : 'down') + '">R$ ' + fmt2(kpis.lucroPrejuizo) + '</span>' +
+              '<span class="trend ' + (kpis.lucroPrejuizo > 0 ? 'up' : 'down') + '">' + (kpis.lucroPrejuizo > 0 ? 'acima do custo' : 'abaixo do custo') + '</span>'
+            : '<span class="kpi-value">—</span><span class="trend neutral">requer cotação de mercado</span>';
+        var rentBloco = kpis.rentabilidade !== null
+            ? '<span class="kpi-value ' + (kpis.rentabilidade > 0 ? 'up' : 'down') + '">' + fmt2(kpis.rentabilidade) + '%</span>' +
+              '<span class="trend ' + (kpis.rentabilidade > 0 ? 'up' : 'down') + '">' + (kpis.rentabilidade > 0 ? 'valorização' : 'desvalorização') + '</span>'
+            : '<span class="kpi-value">—</span><span class="trend neutral">requer cotação de mercado</span>';
+
+        return '' +
+            '<div class="app-shell">' + topbarHTML('/dashboard') +
+            '<main class="page-content">' +
+            '<div class="page-heading"><h1>Resumo</h1><p class="page-subtitle">Visão geral da sua carteira de investimentos.</p></div>' +
+            '<div class="kpi-grid">' +
+            '<div class="kpi-card hero"><span class="kpi-label">Saldo atual</span>' +
+            '<span class="kpi-value ' + lucroClasse + '">R$ ' + fmt2(kpis.saldoAtual) + '</span>' +
+            '<span class="trend neutral" style="color: var(--color-text);">custo de aquisição: R$ ' + fmt2(kpis.valorInvestido) + '</span></div>' +
+            '<div class="kpi-card"><span class="kpi-label">Lucro / Prejuízo</span>' + lucroBloco + '</div>' +
+            '<div class="kpi-card"><span class="kpi-label">Rentabilidade</span>' + rentBloco + '</div>' +
+            '<div class="kpi-card"><span class="kpi-label">Posições</span><span class="kpi-value">' + kpis.numPosicoes + ' ativos</span><span class="trend neutral">—</span></div>' +
+            '</div>' +
+            '<div class="panel-grid">' + evolucaoHTML + alocacaoHTML + '</div>' +
+            renderRankingsHTML(rankings) +
+            '</main></div>' +
+            drawerTransacaoHTML(drawerState);
+    });
+}
+
+function renderPosicoes(user) {
+    var grupos = posicoesPorClasse(user.id);
+    var tickers = [];
+    grupos.forEach(function (g) { g.posicoes.forEach(function (p) { tickers.push(p.ativo.ticker); }); });
+    tickers = Array.from(new Set(tickers));
+
+    var promise = tickers.length ? buscarCotacoes(tickers) : Promise.resolve({});
+    return promise.then(function (cotacoes) {
+        aplicarCotacoes(grupos, cotacoes);
+        var destaques = destaquesCarteira(grupos);
+        var kpis = calcularKpis(user.id);
+
+        var destaquesHTML;
+        if (destaques.avaliadas) {
+            function destaqueItem(label, p) {
+                var trend = p.lucro ? 'up' : 'down';
+                var sinal = p.lucro ? '+' : '';
+                return '<div class="destaque-item"><p class="destaque-label">' + label + '</p>' +
+                    '<p class="destaque-value"><a href="#/ativo/' + encodeURIComponent(p.ativo.ticker) + '" class="ativo-link">' + escapeHtml(p.ativo.ticker) + '</a></p>' +
+                    '<p class="destaque-sub"><span class="trend ' + trend + '">' + sinal + fmt2(p.rentabilidadePercentual) + '%</span></p></div>';
+            }
+            destaquesHTML = '<div class="destaques-grid">' + destaqueItem('Melhor posição', destaques.melhor) + destaqueItem('Pior posição', destaques.pior) + '</div>';
+        } else {
+            destaquesHTML = '<div class="destaques-grid">' +
+                '<div class="destaque-item"><p class="destaque-label">Melhor posição</p><p class="destaque-value">—</p><p class="destaque-sub">requer cotação de mercado</p></div>' +
+                '<div class="destaque-item"><p class="destaque-label">Pior posição</p><p class="destaque-value">—</p><p class="destaque-sub">requer cotação de mercado</p></div>' +
+                '</div>';
+        }
+
+        var noLucroHTML;
+        if (destaques.avaliadas) {
+            noLucroHTML = '<p class="destaque-value">' + destaques.noLucro + ' de ' + destaques.avaliadas + '</p>' +
+                '<div class="progress-bar"><div class="progress-bar-fill" style="width: ' + destaques.percentualNoLucro + '%; background: var(--color-success);"></div></div>' +
+                (destaques.semCotacao ? '<p class="destaque-sub">' + destaques.semCotacao + ' posição(ões) sem cotação disponível</p>' : '');
+        } else {
+            noLucroHTML = '<p class="destaque-value">— de ' + kpis.numPosicoes + '</p>' +
+                '<div class="progress-bar"><div class="progress-bar-fill" style="width: 0%;"></div></div>' +
+                '<p class="destaque-sub">requer cotação de mercado</p>';
+        }
+
+        var gruposHTML;
+        if (grupos.length) {
+            gruposHTML = grupos.map(function (grupo) {
+                var linhas = grupo.posicoes.map(function (p) {
+                    var logo;
+                    if (p.cotacao && p.cotacao.logoUrl) {
+                        var fallback = escapeHtml(p.ativo.ticker.slice(0, 2));
+                        logo = '<img src="' + escapeHtml(p.cotacao.logoUrl) + '" alt="" class="ativo-logo" loading="lazy" data-fallback="' + fallback + '" ' +
+                            'onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'ativo-logo ativo-logo-fallback\',textContent:this.dataset.fallback}))">';
+                    } else {
+                        logo = '<span class="ativo-logo ativo-logo-fallback">' + escapeHtml(p.ativo.ticker.slice(0, 2)) + '</span>';
+                    }
+                    var precoAtualCell = p.precoAtual ? 'R$ ' + fmt2(p.precoAtual) : '—';
+                    var rentCell = p.rentabilidadePercentual !== null
+                        ? '<span class="trend ' + (p.lucro ? 'up' : 'down') + '">' + (p.lucro ? '+' : '') + fmt2(p.rentabilidadePercentual) + '%</span>'
+                        : '<span class="trend neutral">—</span>';
+                    return '<tr><td><a href="#/ativo/' + encodeURIComponent(p.ativo.ticker) + '" class="ativo-cell ativo-link">' + logo + escapeHtml(p.ativo.ticker) + '</a></td>' +
+                        '<td>' + formatQuantidade(p.quantidade, p.ativo.classe) + '</td>' +
+                        '<td>R$ ' + fmt2(p.precoMedio) + '</td>' +
+                        '<td>' + precoAtualCell + '</td>' +
+                        '<td>' + rentCell + '</td>' +
+                        '<td>R$ ' + fmt2(p.valorInvestido) + '</td>' +
+                        '<td>' + fmt1(p.percentual) + '%</td></tr>';
+                }).join('');
+
+                return '<div class="classe-group"><div class="classe-group-header">' +
+                    '<div class="classe-group-title"><span class="color-dot" style="background: ' + grupo.cor + ';"></span>' + grupo.label +
+                    ' <span class="classe-group-count">(' + grupo.posicoes.length + ')</span></div>' +
+                    '<div class="classe-group-stats"><span>Valor total <strong>R$ ' + fmt2(grupo.valorTotal) + '</strong></span>' +
+                    '<span>% da carteira <strong>' + fmt1(grupo.percentual) + '%</strong></span></div></div>' +
+                    '<div class="classe-group-table-scroll"><table class="table"><thead><tr>' +
+                    '<th>Ativo</th><th>Quantidade</th><th>Preço médio</th><th>Preço atual</th><th>Rentabilidade</th><th>Valor investido</th><th>% da carteira</th>' +
+                    '</tr></thead><tbody>' + linhas + '</tbody></table></div></div>';
+            }).join('');
+        } else {
+            gruposHTML = '<div class="empty-panel">' + emptyIllustrationDonut() +
+                '<p class="empty-title">Nenhuma posição em aberto</p>' +
+                '<p class="empty-text">Assim que você registrar uma compra em "Lançamentos", ela aparece aqui com preço médio e valor investido.</p></div>';
+        }
+
+        var corpo = grupos.length
+            ? '<div class="summary-grid">' +
+              '<div class="summary-card"><span class="summary-card-title">Valor investido</span><p class="kpi-value" style="margin-top: 10px;">R$ ' + fmt2(kpis.valorInvestido) + '</p></div>' +
+              '<div class="summary-card"><div class="summary-card-header"><span class="summary-card-title">Destaques da carteira</span>' +
+              '<button type="button" class="info-button" data-drawer-open="drawer-info-rentabilidade" aria-label="Como calculamos os destaques">?</button></div>' + destaquesHTML + '</div>' +
+              '<div class="summary-card"><div class="summary-card-header"><span class="summary-card-title">Posições no lucro</span>' +
+              '<button type="button" class="info-button" data-drawer-open="drawer-info-rentabilidade" aria-label="Como calculamos isso">?</button></div>' + noLucroHTML + '</div>' +
+              '</div>' + gruposHTML
+            : gruposHTML;
+
+        return '' +
+            '<div class="app-shell">' + topbarHTML('/posicoes') +
+            '<main class="page-content">' +
+            '<div class="page-heading"><h1>Posições</h1><p class="page-subtitle">Preço médio e valor investido por ativo, agrupado por classe.</p></div>' +
+            corpo +
+            '</main></div>' +
+            drawerTransacaoHTML(drawerState) +
+            '<div class="drawer-overlay"></div>' +
+            '<div id="drawer-info-rentabilidade" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-info-title">' +
+            '<div class="drawer-header"><h2 id="drawer-info-title">Como calculamos lucro e prejuízo</h2>' +
+            '<button type="button" class="drawer-close" data-drawer-close aria-label="Fechar">&times;</button></div>' +
+            '<div class="drawer-body">' +
+            '<p style="margin-bottom: 16px;">A cotação vem da <strong>brapi.dev</strong> e cobre ações e FIIs. ' +
+            'Criptomoeda e renda fixa ainda aparecem como "—" aqui — essa API é só de ativos da B3, não tem fonte de cotação plugada pra essas classes ainda.</p>' +
+            '<p style="margin-bottom: 16px;"><strong>Rentabilidade de uma posição</strong> = (preço atual − preço médio) ÷ preço médio. Positiva é lucro, negativa é prejuízo.</p>' +
+            '<p style="margin-bottom: 16px;"><strong>Melhor posição / Pior posição</strong> = as posições com a maior e a menor rentabilidade entre tudo que você tem em carteira hoje.</p>' +
+            '<p><strong>Posições no lucro</strong> = quantas das suas posições com cotação disponível têm rentabilidade positiva neste momento, sobre o total de posições avaliadas (não conta cripto/renda fixa, que ainda não têm cotação).</p>' +
+            '</div><div class="drawer-footer"><button type="button" class="button ghost" data-drawer-close>Fechar</button></div></div>';
+    });
+}
+
+function renderTransacoes(user) {
+    var db = loadDB();
+    var transacoes = db.transacoes
+        .filter(function (t) { return t.usuarioId === user.id; })
+        .slice()
+        .sort(function (a, b) { return a.data < b.data ? 1 : a.data > b.data ? -1 : 0; }); // -data (mais recente primeiro)
+
+    var corpo;
+    if (transacoes.length) {
+        var linhas = transacoes.map(function (t) {
+            var ativo = db.ativos.filter(function (a) { return a.id === t.ativoId; })[0];
+            var valorTotal = t.quantidade * t.precoUnitario + t.corretagemTaxas;
+            var dataFmt = t.data.split('-').reverse().join('/');
+            var tipoTag = t.tipo === 'COMPRA' ? '<span class="trend up">Compra</span>' : '<span class="trend down">Venda</span>';
+            return '<tr><td>' + dataFmt + '</td><td><a href="#/ativo/' + encodeURIComponent(ativo.ticker) + '" class="ativo-link">' + escapeHtml(ativo.ticker) + '</a></td><td>' + CLASSES[ativo.classe] + '</td>' +
+                '<td>' + tipoTag + '</td><td>' + formatQuantidade(t.quantidade, ativo.classe) + '</td>' +
+                '<td>R$ ' + fmt2(t.precoUnitario) + '</td><td>R$ ' + fmt2(t.corretagemTaxas) + '</td><td>R$ ' + fmt2(valorTotal) + '</td>' +
+                '<td class="table-actions">' +
+                '<button type="button" class="button ghost small" data-editar-id="' + t.id + '">Editar</button>' +
+                '<button type="button" class="button ghost small" data-excluir-id="' + t.id + '">Excluir</button>' +
+                '</td></tr>';
+        }).join('');
+
+        corpo = '<div class="table-wrap"><table class="table"><thead><tr>' +
+            '<th>Data</th><th>Ativo</th><th>Classe</th><th>Tipo</th><th>Quantidade</th><th>Preço unitário</th><th>Taxas</th><th>Valor total</th><th>Ações</th>' +
+            '</tr></thead><tbody>' + linhas + '</tbody></table></div>';
+    } else {
+        corpo = '<div class="empty-panel">' + emptyIllustrationBars() +
+            '<p class="empty-title">Nenhuma transação registrada ainda</p>' +
+            '<p class="empty-text">Clique em "+ Novo lançamento" para registrar sua primeira compra ou venda.</p></div>';
+    }
+
+    return '' +
+        '<div class="app-shell">' + topbarHTML('/transacoes') +
+        '<main class="page-content">' +
+        '<div class="page-heading"><h1>Lançamentos</h1><p class="page-subtitle">Histórico de compras e vendas registradas.</p></div>' +
+        corpo +
+        '</main></div>' +
+        drawerTransacaoHTML(drawerState);
+}
+
+// Página de detalhe do ativo — genérica, mesma estrutura pra qualquer ticker
+// (não é uma tela por ativo, é uma tela parametrizada por `ticker`). Busca
+// cotação (preço do dia + variação vs. fechamento anterior, já pronta em
+// buscarCotacoes) e histórico de 30 pregões em paralelo.
+function renderAtivoDetalhe(user, ticker) {
+    return Promise.all([buscarCotacoes([ticker]), buscarHistorico(ticker, '1mo', '1d')]).then(function (resultados) {
+        var cot = resultados[0][ticker] || null;
+        var historico = resultados[1];
+
+        var db = loadDB();
+        var ativoLocal = db.ativos.filter(function (a) { return a.ticker === ticker; })[0];
+        var corLinha = CORES_CLASSE[ativoLocal ? ativoLocal.classe : 'ACAO'];
+        var nome = cot ? cot.nome : ticker;
+
+        var logoHtml;
+        if (cot && cot.logoUrl) {
+            var fallback = escapeHtml(ticker.slice(0, 2));
+            logoHtml = '<img src="' + escapeHtml(cot.logoUrl) + '" alt="" class="ativo-logo-lg" loading="lazy" data-fallback="' + fallback + '" ' +
+                'onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'ativo-logo-lg ativo-logo-lg-fallback\',textContent:this.dataset.fallback}))">';
+        } else {
+            logoHtml = '<span class="ativo-logo-lg ativo-logo-lg-fallback">' + escapeHtml(ticker.slice(0, 2)) + '</span>';
+        }
+
+        var precoBlocoHtml;
+        if (cot) {
+            var alta = cot.variacao >= 0;
+            precoBlocoHtml = '<span class="ativo-preco-atual">R$ ' + fmt2(cot.precoAtual) + '</span>' +
+                '<span class="trend ' + (alta ? 'up' : 'down') + '">' + (alta ? '+' : '') + fmt2(cot.variacao) +
+                ' (' + (alta ? '+' : '') + fmt2(cot.variacaoPercentual) + '%) hoje</span>';
+        } else {
+            precoBlocoHtml = '<span class="ativo-preco-atual">—</span><span class="trend neutral">cotação indisponível</span>';
+        }
+
+        var graficoHtml;
+        if (historico.length >= 2) {
+            graficoHtml = '<div class="empty-panel chart-panel" style="margin-top:24px;">' +
+                '<p class="empty-title chart-panel-title">Histórico de preço — últimos ' + historico.length + ' pregões</p>' +
+                montarGraficoHistoricoHTML(historico, corLinha) +
+                '</div>';
+        } else {
+            graficoHtml = '<div class="empty-panel" style="margin-top:24px;">' + emptyIllustrationBars() +
+                '<p class="empty-title">Sem histórico suficiente</p>' +
+                '<p class="empty-text">Não consegui pontos de preço suficientes da brapi pra desenhar o gráfico agora.</p></div>';
+        }
+
+        return '' +
+            '<div class="app-shell">' + topbarHTML(null) +
+            '<main class="page-content">' +
+            '<a href="#/posicoes" class="back-link">&larr; Posições</a>' +
+            '<div class="ativo-header">' + logoHtml +
+            '<div class="ativo-header-info"><h1>' + escapeHtml(ticker) + '</h1><p class="page-subtitle">' + escapeHtml(nome) + '</p></div>' +
+            '<div class="ativo-header-preco">' + precoBlocoHtml + '</div>' +
+            '</div>' +
+            graficoHtml +
+            '</main></div>' +
+            drawerTransacaoHTML(drawerState);
+    });
+}
+
+/* =================================================================
+   ROTEAMENTO
+   ================================================================= */
+
+var loginError = null;
+var registerErrors = null;
+var registerValues = null;
+
+function renderCurrentRoute() {
+    var user = currentUser();
+    var hash = location.hash.replace('#', '') || (user ? '/dashboard' : '/login');
+
+    if (!user && hash !== '/login' && hash !== '/register') { location.hash = '/login'; return; }
+    if (user && (hash === '/login' || hash === '/register')) { location.hash = '/dashboard'; return; }
+
+    var app = document.getElementById('app');
+
+    if (hash === '/login') {
+        document.title = 'Login - Dash Finance';
+        app.innerHTML = renderLogin(loginError);
+        loginError = null;
+        return;
+    }
+    if (hash === '/register') {
+        document.title = 'Cadastrar - Dash Finance';
+        app.innerHTML = renderRegister(registerErrors, registerValues);
+        registerErrors = null; registerValues = null;
+        return;
+    }
+    if (hash === '/dashboard') {
+        document.title = 'Resumo - Dash Finance';
+        renderDashboard(user).then(function (html) { app.innerHTML = html; });
+        return;
+    }
+    if (hash === '/posicoes') {
+        document.title = 'Posições - Dash Finance';
+        renderPosicoes(user).then(function (html) { app.innerHTML = html; });
+        return;
+    }
+    if (hash === '/transacoes') {
+        document.title = 'Lançamentos - Dash Finance';
+        app.innerHTML = renderTransacoes(user);
+        return;
+    }
+    if (hash.indexOf('/ativo/') === 0) {
+        var ticker = decodeURIComponent(hash.slice('/ativo/'.length)).toUpperCase();
+        document.title = ticker + ' - Dash Finance';
+        renderAtivoDetalhe(user, ticker).then(function (html) {
+            app.innerHTML = html;
+            wireGraficoHistorico();
+        });
+        return;
+    }
+    location.hash = user ? '/dashboard' : '/login';
+}
+
+window.addEventListener('hashchange', function () { drawerState = null; renderCurrentRoute(); });
+
+/* =================================================================
+   DELEGAÇÃO DE EVENTOS (funciona independente de re-render, porte do
+   comportamento de drawer.js + wiring de formulários)
+   ================================================================= */
+
+document.addEventListener('click', function (event) {
+    var openBtn = event.target.closest('[data-drawer-open]');
+    if (openBtn) {
+        var drawer = document.getElementById(openBtn.getAttribute('data-drawer-open'));
+        if (drawer) {
+            var overlay = drawer.previousElementSibling;
+            drawer.classList.add('open');
+            if (overlay && overlay.classList.contains('drawer-overlay')) overlay.classList.add('open');
+            var content = document.querySelector('.page-content');
+            if (content) content.inert = true;
+            document.body.style.overflow = 'hidden';
+            var firstField = drawer.querySelector('input:not([type=hidden]), select, textarea');
+            if (firstField) firstField.focus();
+        }
+        return;
+    }
+
+    var closeBtn = event.target.closest('[data-drawer-close]');
+    if (closeBtn) {
+        var d = closeBtn.closest('.drawer');
+        if (d) {
+            var ov = d.previousElementSibling;
+            d.classList.remove('open');
+            if (ov && ov.classList.contains('drawer-overlay')) ov.classList.remove('open');
+            var pc = document.querySelector('.page-content');
+            if (pc) pc.inert = false;
+            document.body.style.overflow = '';
+        }
+        return;
+    }
+
+    if (event.target.classList.contains('drawer-overlay')) {
+        var openDrawerEl = document.querySelector('.drawer.open');
+        if (openDrawerEl) {
+            openDrawerEl.classList.remove('open');
+            event.target.classList.remove('open');
+            var pc2 = document.querySelector('.page-content');
+            if (pc2) pc2.inert = false;
+            document.body.style.overflow = '';
+        }
+        return;
+    }
+
+    if (event.target.id === 'btn-logout' || event.target.closest('#btn-logout')) {
+        clearSession();
+        drawerState = null;
+        location.hash = '/login';
+        return;
+    }
+
+    var editBtn = event.target.closest('[data-editar-id]');
+    if (editBtn) {
+        var editId = Number(editBtn.getAttribute('data-editar-id'));
+        var db = loadDB();
+        var t = db.transacoes.filter(function (x) { return x.id === editId; })[0];
+        var ativo = db.ativos.filter(function (a) { return a.id === t.ativoId; })[0];
+        drawerState = {
+            open: true, editId: editId, errors: {},
+            values: {
+                ticker: ativo.ticker, classeAtivo: ativo.classe, tipo: t.tipo,
+                quantidade: t.quantidade, preco_unitario: t.precoUnitario,
+                data: t.data, corretagem_taxas: t.corretagemTaxas,
+            },
+        };
+        renderCurrentRoute();
+        return;
+    }
+
+    var delBtn = event.target.closest('[data-excluir-id]');
+    if (delBtn) {
+        if (!confirm('Excluir esta transação?')) return;
+        excluirTransacao(Number(delBtn.getAttribute('data-excluir-id')));
+        showMessage('Transação excluída.', 'success');
+        renderCurrentRoute();
+        return;
+    }
+
+    var rankingTab = event.target.closest('[data-ranking-tab]');
+    if (rankingTab) {
+        rankingTabAtiva = rankingTab.getAttribute('data-ranking-tab');
+        renderCurrentRoute(); // reaproveita o cache dos 2 rankings já buscados — não dispara requisição nova
+        return;
+    }
+});
+
+document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') {
+        var openDrawerEl = document.querySelector('.drawer.open');
+        if (openDrawerEl) {
+            openDrawerEl.classList.remove('open');
+            var ov = openDrawerEl.previousElementSibling;
+            if (ov && ov.classList.contains('drawer-overlay')) ov.classList.remove('open');
+            var pc = document.querySelector('.page-content');
+            if (pc) pc.inert = false;
+            document.body.style.overflow = '';
+        }
+    }
+});
+
+document.addEventListener('submit', function (event) {
+    var form = event.target;
+
+    if (form.id === 'form-login') {
+        event.preventDefault();
+        var fd = new FormData(form);
+        var user = autenticar(fd.get('username'), fd.get('password'));
+        if (user) {
+            setSession(user.id);
+            drawerState = null;
+            location.hash = '/dashboard';
+        } else {
+            loginError = 'Usuário ou senha inválidos.';
+            renderCurrentRoute();
+        }
+        return;
+    }
+
+    if (form.id === 'form-register') {
+        event.preventDefault();
+        var fdr = new FormData(form);
+        var resultado = criarUsuario(fdr.get('username'), fdr.get('email'), fdr.get('password1'), fdr.get('password2'));
+        if (resultado.ok) {
+            showMessage('Conta criada com sucesso. Faça login.', 'success');
+            location.hash = '/login';
+        } else {
+            registerErrors = resultado.erros;
+            registerValues = { username: fdr.get('username'), email: fdr.get('email') };
+            renderCurrentRoute();
+        }
+        return;
+    }
+
+    if (form.id === 'form-transacao') {
+        event.preventDefault();
+        var user2 = currentUser();
+        var fdt = new FormData(form);
+        var dados = {};
+        fdt.forEach(function (value, key) { dados[key] = value; });
+        var editId2 = form.getAttribute('data-edit-id') ? Number(form.getAttribute('data-edit-id')) : null;
+
+        var erros = validarTransacao(user2.id, dados, editId2);
+        if (Object.keys(erros).length) {
+            drawerState = { open: true, editId: editId2, errors: erros, values: dados };
+            renderCurrentRoute();
+            return;
+        }
+
+        salvarTransacao(user2.id, dados, editId2);
+        drawerState = null;
+        showMessage(editId2 ? 'Transação salva com sucesso.' : 'Transação registrada com sucesso.', 'success');
+        renderCurrentRoute();
+        return;
+    }
+});
+
+/* =================================================================
+   INIT
+   ================================================================= */
+
+renderCurrentRoute();
+
+})();
+</script>
+</body>
+</html>
