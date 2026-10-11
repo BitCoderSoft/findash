@@ -1274,9 +1274,9 @@ a.nav-item:hover { color: var(--color-text); }
 .hist-tooltip-variacao.down { color: #f3a49e; }
 
 /* Empty-state panels */
-/* [UI v2] bar chart ocupa 65%, donut 35%; altura equalizada */
+/* [UI v4] bar chart ocupa 65%, donut 35%; altura equalizada e mais legível */
 .panel-grid { display: grid; grid-template-columns: 65fr 35fr; gap: 16px; align-items: stretch; }
-.panel-grid > * { min-height: 380px; display: flex; flex-direction: column; }
+.panel-grid > * { min-height: 460px; display: flex; flex-direction: column; }
 .empty-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 32px 28px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; min-height: 220px; justify-content: center; box-shadow: var(--shadow-xs); }
 .empty-illustration { width: 96px; height: auto; color: var(--color-text-subtle); }
 .empty-title { font-size: var(--text-base); font-weight: 600; color: var(--color-text); }
@@ -1328,8 +1328,8 @@ a.nav-item:hover { color: var(--color-text); }
 .chart-legend-row { display: flex; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
 .chart-legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--color-text-muted); font-family: var(--font); }
 .chart-legend-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-.donut-wrap { display: flex; align-items: center; gap: 24px; position: relative; }
-.chart-svg-donut { width: 160px; height: 160px; flex-shrink: 0; }
+.donut-wrap { display: flex; align-items: center; justify-content: center; gap: 24px; position: relative; flex: 1; }
+.chart-svg-donut { width: 180px; height: 180px; flex-shrink: 0; }
 .donut-total { fill: var(--color-text); font-family: var(--font-display); font-weight: 600; font-size: 13px; }
 .donut-total-label { fill: var(--color-text-subtle); font-family: var(--font); font-size: 7px; text-transform: uppercase; letter-spacing: 0.04em; }
 .chart-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--color-text); }
@@ -5371,7 +5371,7 @@ function renderDashboard(user) {
             evolucaoHTML = '<div class="empty-panel chart-panel"><p class="empty-title chart-panel-title">Evolução do patrimônio</p>' +
                 htmlChartJs('chart-evolucao', evolucaoDados,
                     function(v){ return 'R$ ' + v.toLocaleString('pt-BR', {maximumFractionDigits:0}); },
-                    280) +
+                    360) +
                 '</div>';
         } else {
             evolucaoHTML = '<div class="empty-panel">' + emptyIllustrationBars() +
