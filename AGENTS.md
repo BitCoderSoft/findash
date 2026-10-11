@@ -1,256 +1,329 @@
-# AGENTS.md — Dash Finance
+# AGENTS.md — FinDash
 
 Contexto técnico para qualquer agente (ou dev) que for continuar este projeto.
 
 ## O que é
 
-Sistema local de controle financeiro de investimentos, inspirado nas plataformas
-Investidor10 e Smartfolio (meusdividendos). O usuário registra manualmente suas
-compras e vendas de ativos (ações, FIIs, criptomoedas, renda fixa) e o sistema
-deve calcular patrimônio, rentabilidade e comparações com índices (CDI, IBOV etc.),
-eventualmente cruzando com cotações reais via uma API de mercado (o usuário já
-possui uma chave de API para isso, ainda não integrada).
+**FinDash** é um sistema local de controle financeiro de investimentos, inspirado
+nas plataformas Investidor10 e Smartfolio. O usuário registra manualmente suas
+operações (compras, vendas, entradas, saídas, conversões, staking, proventos) e o
+sistema calcula patrimônio, rentabilidade e comparações com índices — cruzando
+com cotações reais via brapi.dev (B3) e Binance (cripto).
 
-Uso é local e single-tenant por enquanto (sem plano de multiusuário/deploy público
-no curto prazo), mas login/senha já existem para proteger os dados na máquina.
+Uso é local e single-tenant: autenticação existe para separar contas na mesma
+máquina, mas não há servidor nem deploy público.
 
 ## Stack
 
-- Python 3.14, Django 6.0.7 (`asgiref`, `sqlparse` como dependências transitivas).
-- Dependências fixadas em `requirements.txt` (instalar com `pip install -r requirements.txt`
-  dentro do `venv/`). Toda vez que uma dependência nova for instalada, rodar
-  `pip freeze > requirements.txt` para manter o arquivo fiel ao que está em uso —
-  é convenção fixa deste projeto, não só para o setup inicial.
-- Banco: SQLite (`db.sqlite3` na raiz, ignorado via `.gitignore` — não versionado).
-- Sem frontend framework: HTML + CSS puro servido via templates Django
-  (`django.contrib.staticfiles`, sem bundler/build step). Interatividade mínima
-  (abrir/fechar drawer) em JS vanilla puro, sem lib.
-- Gráficos do dashboard são SVG montado à mão em Python (`charts.py`), não uma
-  lib de gráficos — decisão deliberada para manter zero dependência de frontend.
-  Ao evoluir os gráficos (ex.: cotação real, comparação com CDI/IBOV), usar a
-  skill `dataviz` deste ambiente para manter consistência visual antes de manter
-  esse approach manual crescendo sem critério.
-- Ambiente: `venv/` na raiz. **Usar `python3`, não `python`**, ao rodar comandos
-  (`python3 manage.py ...`) — é o binário que existe neste ambiente.
+**O projeto migrou de Python/Django para uma aplicação web single-file.**
 
-## Estrutura do projeto
+- **Arquivo principal: `dash-finance.html`** — HTML + CSS + JS puro, sem framework,
+  sem bundler, sem servidor. Basta abrir no navegador.
+- **"Banco de dados"**: `localStorage` do navegador, acessado via camada de
+  abstração `armazem` (nunca usar `localStorage` diretamente no código — ver
+  seção Armazenamento).
+  Chave principal: `DASH_FINANCE_DB_V1`.
+- **Autenticação**: client-side com hash simples de senha armazenado no
+  `localStorage`. Não é segurança de produção — é só para separar dados de
+  contas distintas na mesma máquina. Não reutilizar essas senhas em outros lugares.
+- **Cotações B3 (Ação/FII/BDR)**: brapi.dev — token `BRAPI_TOKEN` hardcoded no
+  arquivo (uso pessoal, nunca publicado). Cache de 30 minutos por símbolo via
+  `armazem`.
+- **Cotações cripto**: Binance REST API (endpoints públicos, sem chave) com
+  fallback entre `data-api.binance.vision` e `api.binance.com`.
+- **Indicadores fundamentalistas**: bolsai.com.br — desativados
+  (`INDICADORES_LIGADOS = false`) até resolver bloqueio de CORS no navegador.
+- **Sem dependências de terceiros**: zero npm, zero pip. O arquivo `dash-finance.html`
+  é autocontido (fontes via Google Fonts, tudo mais inline).
+- **Não há `venv/`, `requirements.txt`, `manage.py` nem migrations** — tudo isso
+  era da fase Django e não se aplica mais.
+
+## Arquivo principal
 
 ```
-dash_finance/          # projeto Django (settings, urls raiz, wsgi/asgi)
-investments/           # único app até agora
-  models.py            # Ativo, Transacao, Provento (Provento ainda sem UI/uso)
-  services.py          # agregações puras em Python: KPIs, alocação por classe, evolução mensal
-  charts.py            # monta a geometria SVG (barras + donut) a partir do que services.py calcula
-  forms.py             # UserRegisterForm + TransacaoForm (cria Ativo on-the-fly se ticker for novo)
-  views.py             # dashboard, transacoes (list+CRUD via drawer), transacao_excluir, register
-  urls.py              # '', 'transacoes/', 'transacoes/<pk>/excluir/', 'login/', 'logout/', 'register/'
-  templates/investments/
-    base.html                 # template base (blocks: title, extra_css, content, extra_js) + drawer.js global
-    login.html                 # tela de login (layout split-screen)
-    register.html               # tela de cadastro (mesmo layout)
-    dashboard.html               # dashboard "Resumo": KPIs reais + gráfico de evolução + donut de alocação
-    transacoes.html               # tabela de lançamentos (CRUD) + botão "+ Novo lançamento"
-    _drawer_transacao.html         # partial do formulário de lançamento, incluído por dashboard.html e transacoes.html
-  static/investments/
-    css/base.css         # design system único do projeto (ver abaixo)
-    js/drawer.js          # abrir/fechar drawer (data-drawer-open/close), foco, ESC, overlay — vanilla JS
-manage.py
-requirements.txt       # dependências fixadas (manter atualizado com pip freeze)
-.gitignore
-README.md              # instalação, venv e como rodar o projeto
-AGENTS.md              # este arquivo
+dash-finance.html     ← FONTE DA VERDADE. 8 000+ linhas, ~970 KB.
+                        Abrir direto no navegador, sem servidor.
 ```
 
-Não há outros apps ainda. Todo o domínio (ativos, transações, proventos) está
-dentro de `investments`; ainda não foi necessário quebrar em apps menores.
+O restante da estrutura de diretórios (`investments/`, `dash_finance/`,
+`manage.py`, `requirements.txt`, `venv/`) é legado da fase Django — pode ser
+ignorado ou removido; não é mais mantido.
 
-## Modelo de dados
+## Estrutura interna do arquivo
 
-- `Ativo`: ticker (upper+strip automático no `save()`, unique), classe
-  (Ação/FII/Cripto/Renda fixa via `TextChoices`), moeda (BRL/USD).
-- `Transacao`: usuário, ativo, tipo (Compra/Venda), quantidade e preço unitário
-  em `DecimalField` de alta precisão (8 casas — pensado para cripto), taxas de
-  corretagem, data. `CheckConstraint`s garantem quantidade/preço positivos e
-  taxas não-negativas no nível do banco. `valor_total` é property (quantidade *
-  preço + taxas).
-- `Provento`: usuário, ativo, tipo (Dividendo/JCP/Rendimento), valor, data.
-  **Modelado mas ainda sem form/view/tela** — próximo passo natural depois de
-  proventos entrarem no roadmap de UI.
-- Posição por ativo **não é persistida em tabela própria** — é sempre recalculada
-  em `services.py` a partir das transações brutas, pelo método de **preço médio
-  ponderado** (`_custo_medio_por_ativo`): uma venda reduz o custo total pela
-  quantidade vendida × preço médio vigente no momento, não pelo preço da própria
-  venda. É o método usado no mercado brasileiro para apurar preço médio de
-  ações — uma soma ingênua de fluxo de caixa (comprou soma, vendeu subtrai pelo
-  valor da venda) dá preço médio errado depois da primeira venda parcial. Essa
-  função é a única fonte de verdade: `posicoes_atuais`, `calcular_kpis` e
-  `alocacao_por_classe` (dashboard e tela de Posições) todos partem dela — não
-  reimplementar o cálculo de posição em outro lugar.
-- `evolucao_mensal` usa a mesma lógica de preço médio para acumular mês a mês,
-  mas soma o delta de **todas** as transações, mesmo de um ativo cuja posição
-  ficou negativa (venda a descoberto) — hoje bloqueada no form (ver abaixo),
-  então na prática isso só importava para dado legado/inconsistente.
+O arquivo segue esta ordem:
 
-## Rotas e autenticação
+1. **Comentário de cabeçalho** — guia de manutenção com todas as mudanças
+   marcadas por tag (`[MOTOR v2]`, `[CRIPTO v1]`, etc.) e pendências de porte
+   para quem quiser ressuscitar o Django.
+2. **`<style>`** — design system completo (~1 600 linhas de CSS).
+3. **`<body>`** — contém apenas `<div id="app"></div>` + uma faixa de aviso de
+   armazenamento. Todo o HTML das páginas é gerado por JS.
+4. **`<script>`** — todo o JavaScript inline, organizado em blocos marcados
+   com comentários `/* ===...=== */`.
 
-- `/` → `dashboard` (view protegida por `@login_required(login_url='login')`).
-  GET renderiza KPIs + gráficos; POST cria uma transação via o drawer e
-  redireciona de volta para `dashboard` (evita reenvio de formulário).
-- `/transacoes/` → `transacoes` (login required). Lista todas as transações do
-  usuário. Suporta criar (POST sem `transacao_id`), editar (`?editar=<pk>` abre
-  o drawer pré-preenchido; POST com `transacao_id` faz update) e excluir via
-  `/transacoes/<pk>/excluir/` (POST-only, `@require_POST`). Toda query já filtra
-  por `usuario=request.user` — não há vazamento de dados entre usuários.
-- `/login/` → `LoginView` padrão do Django, template `investments/login.html`.
-- `/logout/` → `LogoutView`. **Importante:** desde o Django 4.1, `LogoutView` só
-  aceita `POST` (GET dá 405). O botão "Sair" no dashboard é um `<form method="post">`
-  com `{% csrf_token %}`, não um link — não trocar de volta para `<a href="{% url 'logout' %}">`.
-- `/register/` → view custom (`views.register`) usando `UserRegisterForm`, redireciona
-  para `login` com mensagem de sucesso via `django.contrib.messages`.
-- `LOGIN_URL`, `LOGIN_REDIRECT_URL`, `LOGOUT_REDIRECT_URL` configurados em `settings.py`.
+### Blocos JS (em ordem no arquivo)
 
-## Fluxo do drawer de lançamento
+| Bloco | Responsabilidade |
+|---|---|
+| CONSTANTES | Tokens, chaves de cache, TTLs, classes de ativo, cores |
+| ARMAZENAMENTO | Camada `armazem` (localStorage / fallback em memória) |
+| CAMADA DE DADOS | CRUD sobre o JSON do `armazem` (usuários, ativos, transações) |
+| MOTOR DE CARTEIRA | Preço médio ponderado, posições, KPIs, alocação |
+| GRÁFICOS | SVG montado em JS (evolução mensal, donut de alocação, gráfico de preço) |
+| MARKET DATA (brapi) | Cotações B3, histórico de preço, rankings de mercado |
+| MARKET DATA (Binance) | Cotações de cripto, fallback entre pares BRL/USDT |
+| ROTEAMENTO | `navegar()`, sequenciamento de renderização, `renderCurrentRoute()` |
+| COMPONENTES UI | Topbar, rodapé, saudação, drawer, formulário de lançamento |
+| PÁGINAS | Uma função `renderXxx(user)` por página (ver lista abaixo) |
+| BOOTSTRAP | Inicialização, evento DOMContentLoaded, delegação de eventos |
 
-- `_drawer_transacao.html` é um partial incluído tanto por `dashboard.html`
-  quanto por `transacoes.html` — mesmo formulário (`TransacaoForm`), mesma
-  marcação, para não duplicar o CRUD de transação nas duas telas.
-- Abertura/fechamento é 100% client-side via `drawer.js` (atributos
-  `data-drawer-open="drawer-transacao"` / `data-drawer-close`), com overlay,
-  `inert` no conteúdo da página, trava de scroll, foco no primeiro campo ao
-  abrir e devolução de foco ao gatilho ao fechar (acessibilidade básica).
-- Reabertura automática pelo servidor: se o form é submetido com erro, a view
-  retorna `drawer_open=True` no contexto e o template já renderiza a classe
-  `.open` no drawer — sem depender de JS para saber que deve reabrir.
-- `TransacaoForm` recebe `ticker` (texto livre) + `classe_ativo` (opcional) além
-  dos campos do model; no `save()`, faz `Ativo.objects.get_or_create` pelo
-  ticker — cadastro de ativo é implícito ao lançar a primeira transação dele,
-  não existe tela separada de cadastro de ativo.
-- Os `labels` de todos os campos do `Meta` do `TransacaoForm` são explícitos
-  (`labels = {...}`) — **não confiar no auto-label do Django** aqui: ele gera
-  o label a partir do nome do campo Python sem acentuar (`preco_unitario` vira
-  "Preco unitario", não "Preço unitário"). Qualquer campo novo no model que for
-  exposto nesse form precisa de entrada correspondente em `labels`.
-- **`TransacaoForm` bloqueia venda a descoberto**: recebe `usuario` no
-  `__init__` (`TransacaoForm(request.POST, usuario=request.user)`) e, no
-  `clean()`, usa `services.quantidade_disponivel` pra impedir vender mais do
-  que a posição líquida atual do ativo (erro no campo `quantidade`, sem
-  travar o app — a venda simplesmente não salva). **Toda view que instancia
-  `TransacaoForm` precisa passar `usuario=request.user`**, tanto no GET
-  (`instance=...`) quanto no POST — sem isso a validação é silenciosamente
-  pulada (`self.usuario` é `None`), não levanta erro. Este projeto não
-  trabalha com o conceito de venda a descoberto — decisão explícita do
-  usuário, não uma limitação técnica a resolver depois.
+## Páginas / Rotas
 
-## Design system (`base.css`)
+| Rota | Função JS | Descrição |
+|---|---|---|
+| `/login` | `renderLogin()` | Tela de login (split-screen) |
+| `/register` | `renderRegister()` | Cadastro de conta |
+| `/` | `renderDashboard(user)` | Resumo: KPIs, gráfico de evolução, donut, rankings |
+| `/posicoes` | `renderPosicoes(user)` | Posições por ativo e por classe, rentabilidade, destaques |
+| `/proventos` | `renderProventos(user)` | Histórico de proventos, YoC |
+| `/transacoes` | `renderTransacoes(user)` | CRUD de lançamentos (tabela + drawer) |
+| `/ativo/:ticker` | `renderAtivoDetalhe(user, ticker)` | Detalhe do ativo: gráfico histórico, indicadores, lançamentos |
+| `/balanceamento` | `renderBalanceamento(user)` | Alocação ideal por classe, notas por ativo, simulador de aporte |
+| `/objetivos` | `renderObjetivos(user)` | Metas de patrimônio/renda; progresso e prazo estimado |
+| `/backup` | `renderBackup(user)` | Export/import JSON da carteira + verificação de integridade |
 
-Reescrito do zero (a v1 tinha cara de "gerado por IA": sombras dramáticas, cantos
-muito arredondados, fontes grandes demais). Princípios atuais, para manter
-consistência em qualquer tela nova:
+A navegação é client-side via `data-rota="<rota>"` em links/botões — não há
+`href` nos links internos (imposto pelo ambiente do preview do claude.ai, mas
+mantido por consistência). A função `navegar(rota)` centraliza todo o roteamento.
 
-- **Tipografia compacta**: escala de `--text-xs` (12px) a `--text-2xl` (28px),
-  definida em `rem` a partir da raiz de 16px (não mexer no `font-size` do `html`).
-  Título de página (`.page-heading h1`) é ~22px, não 32px+.
-- **Superfícies planas**: bordas hairline (`--color-border`) em vez de sombra
-  pesada. Sombra só como reforço sutil (`--shadow-xs`/`--shadow-sm`), nunca como
-  efeito principal. Exceção deliberada: o drawer usa uma sombra mais presente
-  (`-24px 0 48px`) porque precisa se destacar como camada flutuante sobre a
-  página — não é regressão para o clichê de "sombra pesada em card".
-- **Raio de borda contido**: 8–14px (`--radius-sm/md/lg`). Nada de 20px+ em card
-  de app financeiro.
-- **Paleta**: indigo (`--color-primary #4338ca`) como acento único, verde/vermelho
-  semânticos só para ganho/perda (`--color-success`/`--color-danger`), painel de
-  marca do login em navy escuro (`--color-brand-panel-1/2`). Classes de ativo nos
-  gráficos usam uma paleta própria fixa (`CORES_CLASSE` em `charts.py`: azul/Ação,
-  laranja/FII, verde/Cripto, amarelo/Renda fixa) — a ordem das classes na legenda
-  e no donut é sempre a mesma (`Ativo.Classe` na ordem declarada), não por
-  tamanho, para a cor de cada classe não mudar conforme a carteira muda.
-- **Auth**: layout split-screen (painel de marca à esquerda + formulário à
-  direita), não card centralizado flutuante. Colapsa para coluna única em
-  `max-width: 900px` (painel de marca escondido, formulário ocupa a tela toda).
-- **App shell**: topbar com marca + abas de navegação horizontais (sublinhado no
-  item ativo), não sidebar. Três abas ativas hoje, nesta ordem: Resumo
-  (`dashboard`), Posições (`posicoes`) e Lançamentos (`transacoes`) — a marcação
-  do topbar é duplicada nas três templates (mesma lista de `<a class="nav-item">`
-  repetida, sem partial próprio ainda); ao adicionar uma nova aba, atualizar as
-  três de uma vez. Abas de seções ainda não implementadas (Proventos,
-  Patrimônio, Rentabilidade) devem seguir o mesmo padrão: aparecer como
-  `<span class="nav-item disabled">`, propositalmente sem `href`, até a página
-  existir de fato.
-- **Drawer (slide-over)**: painel lateral direito (`min(520px, 92vw)`), não
-  modal centralizado — usado para criar/editar lançamentos em vez de navegar
-  para uma página separada. `prefers-reduced-motion` desliga a transição.
-- **Tabela**: `.table-wrap`/`.table` para listagens densas (lançamentos) —
-  hairline entre linhas, cabeçalho em uppercase/subtle, sem zebra striping.
-- **Empty states**: `.empty-panel` com ilustração SVG simples (`currentColor` +
-  opacidade) para painéis do dashboard sem dado ainda — usado tanto nos
-  gráficos (antes do primeiro lançamento) quanto na tabela de lançamentos vazia.
-- Todo HTML novo deve estender `investments/base.html` e usar as classes já
-  existentes em `base.css` (`.card`/`.kpi-card`, `.button.primary/.ghost/.small`,
-  `.field`, `.empty-panel`, `.table`, `.drawer*`) em vez de CSS inline por página
-  — a única exceção hoje é o bloco `extra_css` do `dashboard.html`, específico
-  dos gráficos SVG (não reutilizável em outra tela ainda).
+## Modelo de dados (localStorage)
 
-## Débitos técnicos conhecidos (ainda não resolvidos, decisão pendente com o usuário)
+Tudo persiste em um único objeto JSON na chave `DASH_FINANCE_DB_V1`:
 
-- `SECRET_KEY` hardcoded em `settings.py` e `DEBUG = True` — aceitável enquanto for
-  uso 100% local, mas não deve ir para produção/deploy sem revisar.
-- `LANGUAGE_CODE = 'en-us'` em `settings.py`, mas toda a UI e mensagens são em
-  pt-BR — inconsistência menor, não corrigida ainda.
-- Sem testes (`tests.py` vazio) e sem CI configurado.
-- `ALLOWED_HOSTS = []` — só serve em localhost por enquanto.
-- KPIs de "Lucro/Prejuízo" e "Rentabilidade" no dashboard são placeholders (`—`)
-  porque dependem de cotação de mercado real, ainda não integrada.
-- `Provento` existe no model mas não tem form/view/tela — não entra em nenhum
-  KPI ou gráfico ainda.
-- Quantidade é exibida com 8 casas decimais fixas em toda a UI (tabela e drawer
-  de edição), mesmo para ativos que não precisam dessa precisão (ex.: ações
-  compradas em unidades inteiras) — pensado para cripto, mas polui a leitura de
-  quantidades "redondas".
-- Sem cadastro/edição de `Ativo` fora do drawer de lançamento — se a classe for
-  informada errada no primeiro lançamento de um ticker novo, só dá pra corrigir
-  pelo Django admin.
-- Editar/excluir uma transação é definitivo, sem histórico de alteração.
+```js
+{
+  nextId: Number,          // contador global de IDs
+  usuarios: [...],         // { id, username, email, passwordHash, criadoEm }
+  ativos: [...],           // { id, ticker, classe, mercado, criadoEm }
+  transacoes: [...]        // ver abaixo
+}
+```
 
-## Roadmap combinado com o usuário (ordem)
+### Ativo
 
-1. ~~Base visual (design system, correção de bugs de layout, fluxo de login/logout)~~ — feito.
-2. ~~Modelar dados centrais (`Ativo`, `Transacao`, `Provento`)~~ — feito.
-3. ~~Tela de lançamentos (CRUD de transações via drawer)~~ — feito.
-4. ~~Dashboard com dados reais no lugar dos cards zerados~~ — feito para o que
-   não depende de cotação (valor investido, posições, evolução, alocação).
-5. ~~Tela de Posições (preço médio + valor investido por ativo, `/posicoes/`)~~
-   — feito, junto com o bloqueio de venda a descoberto no `TransacaoForm`
-   (validado com bateria de lançamentos simulados: múltiplas compras a preços
-   diferentes, posição fechada e reaberta, taxas de corretagem, quantidade
-   fracionária de cripto).
-6. **Proventos (dividendo/JCP/rendimento) — adiado por decisão do usuário**,
-   não é prioridade agora. Quando retomar: model já existe, falta form + tela
-   no mesmo padrão de `transacoes.html` (tabela + drawer).
-7. Integração com a API de cotações (usuário já tem token) para calcular
-   rentabilidade real e comparação com CDI/índices — desbloqueia os KPIs de
-   Lucro/Prejuízo e Rentabilidade que hoje são `—`. Ao chegar em gráficos
-   novos derivados disso, usar a skill `dataviz` deste ambiente.
-8. Diferenciação visual do design atual, que partiu de um print do Investidor10
-   e ainda se parece bastante com ele (cor de acento, navegação em abas
-   horizontais, split-screen do login). Ideias já discutidas com o usuário,
-   sem direção escolhida ainda: cor de acento fora do padrão indigo/navy de
-   fintech, navegação em rail lateral ou abas em pill, login sem o painel
-   lateral escuro + ilustração, tipografia numérica própria pros KPIs, hero
-   KPI assimétrico em vez de 4 cards iguais.
+- `ticker`: string maiúscula, trimada.
+- `classe`: `'ACAO' | 'FII' | 'BDR' | 'CRIPTO' | 'RENDA_FIXA'`.
+- `mercado`: `'BOLSA' | 'CRIPTO'` — determina quais tipos de transação são
+  permitidos e qual fonte de cotação usar.
 
-## Preferências de trabalho observadas
+### Transação
+
+```js
+{
+  id, usuarioId, ativoId,
+  tipo,              // ver abaixo
+  data,              // 'YYYY-MM-DD'
+  quantidade,        // Decimal simulado como Number (CLASSES_INTEIRAS bloqueia fração em Ação/FII/BDR)
+  precoUnitario,     // null em ENTRADA/SAIDA/STAKE/PROVENTO/RENDIMENTO_RF
+  taxas,             // 0 por padrão
+  // Apenas CONVERSAO:
+  ativoDestinoId,
+  quantidadeDestino,
+  criadoEm           // timestamp para desempate de ordenação
+}
+```
+
+### Tipos de transação por mercado
+
+| Mercado | Tipos permitidos |
+|---|---|
+| BOLSA (Ação/FII/BDR) | `COMPRA`, `VENDA`, `PROVENTO` |
+| CRIPTO | `COMPRA`, `VENDA`, `ENTRADA`, `SAIDA`, `CONVERSAO`, `STAKE` |
+| RENDA_FIXA | `APORTE`, `RENDIMENTO_RF`, `SAIDA` |
+
+Semântica dos tipos:
+
+- `COMPRA` / `APORTE` → soma quantidade **e** custo (qtd × preço + taxas).
+- `ENTRADA` / `STAKE` → soma **só** quantidade; custo zero (ex.: airdrop, staking).
+- `VENDA` / `SAIDA` → retira quantidade e o custo proporcional pelo PM vigente.
+- `CONVERSAO` → retira da origem pelo PM e migra esse mesmo custo para o ativo
+  destino (campo `ativoDestinoId` + `quantidadeDestino`).
+- `PROVENTO` / `RENDIMENTO_RF` → não mexe na posição; vai para o total de proventos.
+
+### Preço médio ponderado
+
+`processarCarteira()` é a única fonte de verdade para posições. Algoritmo:
+
+1. Ordenar transações por `(data, PRIORIDADE_NO_DIA[tipo], criadoEm, id)`.
+   - Compras antes de vendas no mesmo dia é crucial: uma compra e uma venda
+     no mesmo dia só é válida se a compra vier primeiro.
+2. Processar cada transação acumulando `quantidade`, `custoTotal` e
+   `qtdComCusto` (quantidade que tem custo — exclui ENTRADA/STAKE).
+3. PM = `custoTotal / qtdComCusto` (não divide pela quantidade total, para
+   que staking não diluir o PM das compras pagas).
+4. Residuo `< QTD_EPSILON` (1e-9) é zerado para evitar artefatos de ponto
+   flutuante (equivalente ao `Decimal` do Python, mas JS não tem Decimal nativo).
+
+**Não reimplementar este cálculo em outro lugar.** Toda lógica derivada
+(destaques, KPIs, balanceamento, objetivos) chama `processarCarteira()` e
+usa seu resultado.
+
+### Validação cronológica de venda
+
+`verificarCronologia(transacoes, novaTransacao, ativoId)` verifica que a
+venda/saída/conversão não vai deixar nenhuma transação posterior no negativo —
+validação considerando a posição **na data** do lançamento, não a posição total
+de hoje. Isso previne: "comprei 10 em jan, vendi 10 em fev, tentei editar a
+compra de jan para 5 → a venda de fev ficaria inválida".
+
+## Market data
+
+### brapi.dev (B3 — Ação/FII/BDR)
+
+- Uma requisição por símbolo (plano gratuito não aceita batch).
+- **Todas** as chamadas à brapi passam por `brapiFetch()`, que serializa numa
+  fila global — o plano em uso não aceita mais de 1 requisição em voo
+  simultâneo para nenhum endpoint (testado: paralelo derruba a conexão).
+- Cache de **30 minutos** por símbolo (`CACHE_TTL_MS`), armazenado no
+  `armazem` sob a chave `DASH_FINANCE_QUOTE_CACHE_V1`.
+- Falha individual (ticker inválido, rede) não quebra o resto — símbolo
+  ausente vira `null` em todos os campos derivados.
+- Quando uma cotação expira e é buscada de novo, o histórico do ticker (1mo/1d)
+  é aquecido em segundo plano na mesma janela, para que a página de detalhe
+  não precise esperar.
+
+### Binance (Cripto)
+
+- Tenta cotação em BRL primeiro (`<TICKER>BRL`). Se o par não existir ou estiver
+  parado (preço < R$ 0,50 ou variação zerada), cai para `<TICKER>USDT × USDTBRL`.
+- Dois base URLs com fallback: `data-api.binance.vision` → `api.binance.com`.
+- Não passa pela fila `brapiFetch()` — são APIs independentes.
+
+### Rankings (widget do Resumo)
+
+- Ações em alta, ações em queda, FIIs por liquidez, cripto (BTC/ETH/USDT) em
+  reais — buscados via `buscarRankings()`, cache separado
+  (`DASH_FINANCE_RANKING_CACHE_V1`), também 30 minutos.
+
+### bolsai.com.br (indicadores fundamentalistas)
+
+- Desativado (`INDICADORES_LIGADOS = false`) — CORS bloqueia chamadas do
+  navegador com a chave no cabeçalho; tentativa de fallback com `?api_key=`
+  na URL também bloqueada. Reativar quando houver solução de proxy ou CORS
+  oficial.
+- Cache diário (expira à meia-noite UTC) quando ativado.
+
+## Armazenamento (`armazem`)
+
+**Nunca usar `localStorage` diretamente.** Toda leitura/escrita passa por:
+
+```js
+armazem.get(chave)        // retorna string | null
+armazem.set(chave, valor) // valor sempre string
+armazem.remove(chave)
+```
+
+Internamente `armazem` escolhe o backend:
+- `'local'` → `localStorage` (arquivo aberto direto no navegador — caso normal).
+- `'memory'` → objeto JS em memória (preview do claude.ai bloqueia
+  `localStorage`; uma faixa amarela avisa o usuário).
+
+Chaves do sistema:
+
+| Chave | Conteúdo |
+|---|---|
+| `DASH_FINANCE_DB_V1` | JSON principal (usuários, ativos, transações) |
+| `DASH_FINANCE_SESSION_V1` | Sessão ativa `{ userId }` |
+| `DASH_FINANCE_QUOTE_CACHE_V1` | Cache de cotações B3 |
+| `DASH_FINANCE_HIST_CACHE_V1` | Cache de histórico de preço |
+| `DASH_FINANCE_RANKING_CACHE_V1` | Cache de rankings de mercado |
+
+## Design system (CSS)
+
+Princípios — manter consistência em telas novas:
+
+- **Acento grafite/quase-preto** (`--color-primary: #201c1a`), não indigo como
+  na fase Django. Verde/vermelho semânticos só para ganho/perda.
+- **Tipografia compacta**: `--text-xs` (12px) a `--text-3xl` (36px). Nada de
+  fonte gigante em card financeiro.
+- **Superfícies planas**: bordas hairline, sombra só como reforço sutil.
+  Exceção: drawer usa sombra mais presente (camada flutuante).
+- **Raio contido**: 8–14px. Nada de 20px+ em card financeiro.
+- **Paleta de classes** (`CORES_CLASSE`): azul/Ação `#2a78d6`, laranja/FII
+  `#eb6834`, roxo/BDR `#8a5cd6`, verde/Cripto `#1baf7a`, amarelo/Renda fixa
+  `#eda100`. Ordem fixa nas legendas — não muda conforme a carteira muda.
+- **App shell**: topbar horizontal em desktop, menu sanduíche em mobile.
+- **Drawer**: slide-over lateral direito (`min(520px, 92vw)`). Mesmo padrão
+  da fase Django, portado para JS puro.
+- **Mobile/PWA**: `@media (max-width: 768px)` ativa layout de cartões
+  para tabelas, botão flutuante `+` para novo lançamento, menu sanduíche,
+  tela cheia no formulário de lançamento.
+- Todo CSS novo vai no `<style>` do próprio arquivo, não em arquivo externo.
+
+## Convenções de manutenção
+
+- **Tags de mudança**: toda divergência do comportamento original Django fica
+  marcada com uma tag no código: `// [MOTOR v2 · 28/09/2026]`, `// [CRIPTO v1]`,
+  etc. Procurar pela tag para achar todos os pontos afetados.
+- **`APP_VERSAO`**: incrementar ao entregar uma versão com mudança relevante.
+  Só alterar `var APP_VERSAO` (linha ~4095) — o rodapé usa essa variável.
+- **`BRAPI_TOKEN`**: hardcoded em `var BRAPI_TOKEN` (linha ~1792). Arquivo é
+  de uso pessoal; **nunca versionar/publicar com o token real**.
+- **Novo ativo ou tipo de transação**: atualizar `CLASSES`, `CLASSES_ORDEM`,
+  `CLASSES_LANCAVEIS`, `CORES_CLASSE` e `TIPOS_POR_MERCADO`.
+- **Nova página**: criar `renderNovaPagina(user)`, registrar em
+  `renderCurrentRoute()`, adicionar item no topbar/menu mobile.
+
+## Débitos técnicos conhecidos
+
+- `BRAPI_TOKEN` hardcoded — aceitável para uso pessoal, jamais subir ao git.
+- Hash de senha simples — não é segurança real; adequado para separar contas
+  na mesma máquina, não para proteger dado sensível contra atacante local.
+- `INDICADORES_LIGADOS = false` — indicadores da bolsai desativados por CORS.
+- `localStorage` não é compartilhado entre navegadores/dispositivos — backup
+  manual (página Backup) é o único mecanismo de persistência fora do browser.
+- Sem testes automatizados.
+- Renda Fixa parcialmente implementada (APORTE/RENDIMENTO_RF existem no motor,
+  UI de aporte ainda básica).
+- Formulário não impede quantidade fracionada em Ação/FII/BDR no campo de
+  quantidade (a validação `CLASSES_INTEIRAS` bloqueia, mas a mensagem de erro
+  pode ser melhorada).
+
+## Roadmap (atualizado)
+
+1. ✅ Design system e fluxo de autenticação.
+2. ✅ Modelo de dados (ativos, transações, proventos).
+3. ✅ CRUD de lançamentos via drawer.
+4. ✅ Dashboard com KPIs reais (sem cotação).
+5. ✅ Tela de Posições com preço médio.
+6. ✅ Integração brapi (cotação B3, rentabilidade, logos).
+7. ✅ Motor de carteira v2: 5 tipos de transação + STAKE, validação cronológica,
+      BDR como nova classe, preço médio de compra separado de quantidade com custo.
+8. ✅ Cripto via Binance com fallback BRL → USDT×USDTBRL.
+9. ✅ Proventos implementados (lançamento manual, YoC, retorno total).
+10. ✅ Tela de Ativo (histórico de preço, indicadores, lançamentos do ativo).
+11. ✅ Balanceamento (alocação ideal, simulador de aporte).
+12. ✅ Objetivos (metas de patrimônio/renda, prazo estimado).
+13. ✅ Backup (export/import JSON, verificação de integridade).
+14. ✅ Mobile/PWA (menu sanduíche, botão flutuante, tabelas em cartão).
+15. ✅ Rankings de mercado no Resumo.
+16. **Pendente**: reativar indicadores bolsai (resolver CORS ou criar proxy).
+17. **Pendente**: suporte multi-dispositivo (hoje cada browser tem sua própria
+      carteira — export/import é o workaround atual).
+18. **Pendente**: modo escuro.
+19. **Pendente**: comparação com índices (CDI, IBOV) na evolução mensal.
+
+## Preferências de trabalho
 
 - Comunicação e conteúdo de UI em português (pt-BR).
-- Usuário valoriza design "clean" de verdade (não apenas "sem bagunça visual") —
-  já rejeitou uma primeira iteração por parecer genérica/"IA" (sombras pesadas,
-  cantos muito arredondados, fontes grandes, card de login centralizado). Antes de
-  entregar mudanças visuais, vale considerar se foge desses clichês.
-- Mudanças de UI devem ser verificadas rodando o servidor de verdade
-  (Playwright/screenshot), não só lidas no código. Ao gerar dados de teste para
-  isso, usar um usuário descartável (não os dados reais já no `db.sqlite3`) e
-  limpar tudo (usuário, transações, ativos órfãos) ao final — o banco local não
-  é só um fixture de teste, tem dado real do usuário.
-- Este arquivo (AGENTS.md) deve refletir o estado real do working tree, inclusive
-  o que ainda não foi commitado — não só o último commit. Ao fechar um bloco
-  relevante do roadmap, atualizar a seção correspondente aqui no mesmo passo,
-  não depois.
+- Design "clean" de verdade — sem sombras pesadas, cantos muito arredondados,
+  fontes grandes ou cards genéricos "de IA". Antes de entregar mudança visual,
+  verificar se foge desses clichês.
+- Mudanças de UI devem ser verificadas no navegador (abrir o arquivo), não só
+  lidas no código.
+- Este arquivo (`AGENTS.md`) deve refletir o estado real do `dash-finance.html`,
+  inclusive o que ainda não foi commitado. Ao fechar um bloco do roadmap,
+  atualizar aqui no mesmo passo.
+- Ao usar a skill `dataviz` do ambiente, manter consistência com a paleta e
+  os princípios acima.
