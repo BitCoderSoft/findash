@@ -17,7 +17,7 @@ máquina, mas não há servidor nem deploy público.
 
 **O projeto migrou de Python/Django para uma aplicação web single-file.**
 
-- **Arquivo principal: `dash-finance.html`** — HTML + CSS + JS puro, sem framework,
+- **Arquivo principal: `index.html`** — HTML + CSS + JS puro, sem framework,
   sem bundler, sem servidor. Basta abrir no navegador.
 - **"Banco de dados"**: `localStorage` do navegador, acessado via camada de
   abstração `armazem` (nunca usar `localStorage` diretamente no código — ver
@@ -41,8 +41,8 @@ máquina, mas não há servidor nem deploy público.
 ## Arquivo principal
 
 ```
-dash-finance.html     ← FONTE DA VERDADE. 8 000+ linhas, ~970 KB.
-                        Abrir direto no navegador, sem servidor.
+index.html     ← FONTE DA VERDADE. 8 600+ linhas, ~1 MB.
+                 Abrir direto no navegador, sem servidor.
 ```
 
 O restante da estrutura de diretórios (`investments/`, `dash_finance/`,
@@ -214,6 +214,93 @@ compra de jan para 5 → a venda de fev ficaria inválida".
   oficial.
 - Cache diário (expira à meia-noite UTC) quando ativado.
 
+## Rentabilidade mensal (RENT v4)
+
+O cálculo de rentabilidade usa **Modified Dietz** e **patrimônio a valor de mercado**.
+
+### Fórmula (meses fechados)
+
+```
+Numerador   = PatrimonioFim − PatrimonioInicio − AportesLiquidos + Proventos
+Denominador = PatrimonioInicio + AportesLiquidos × 0.5   ← Modified Dietz
+Rentabilidade = Numerador / Denominador × 100
+```
+
+- **PatrimonioInicio/Fim**: `patrimonioNaData(usuarioId, anoMes, precosMensaisPorTicker)`
+  — reconstrói posições até o último dia do mês + aplica preços históricos.
+  RF usa custo acumulado (sem cotação de mercado).
+- **AportesLiquidos**: `aportesLiquidosNoMes` — COMPRA/APORTE menos VENDA/SAIDA.
+  ENTRADA, STAKE, CONVERSÃO, PROVENTO e RENDIMENTO_RF não são fluxos de capital.
+- **Proventos**: `proventosNoMes` — soma de PROVENTO + RENDIMENTO_RF do mês
+  (necessário para não distorcer o retorno no efeito ex-dividendo).
+- **Fallback de preço**: se não tiver histórico para um ticker, usa preço médio
+  de custo da posição naquela data.
+
+### Fonte de preços históricos
+
+| Classe | Fonte | Cache |
+|---|---|---|
+| Ação/FII/BDR | brapi `range=2y&interval=1mo` (HTTP 200 confirmado) | 24h em `HIST_MENSAL_CACHE_KEY` |
+| Cripto | Binance klines `interval=1M&limit=25` | 24h em `HIST_MENSAL_CACHE_KEY` |
+| Renda Fixa | Custo contábil (sem API) | — |
+
+O campo `date` da brapi retorna timestamp Unix em **segundos** (verificado em
+11/10/2026). `normalizarDataBrapi(ts)` converte para `"YYYY-MM"`. O `close` do
+candle mensal é o fechamento do último dia útil daquele mês.
+
+### MTD (mês corrente em andamento)
+
+`obterMTD(usuarioId, cotacoes, cdiHoje)` calcula rentabilidade parcial do mês
+atual usando cotações ao vivo (as mesmas já buscadas no dashboard). Resultado
+marcado como `parcial: true` — aparece no heatmap com asterisco. Não é gravado
+no `historicoRentabilidade`; existe só em `_mtdCache` (memória de sessão).
+
+### Fluxo de fechamento
+
+`fecharMesAnteriorSeNecessario(usuarioId)` roda em background no boot, retorna
+`Promise<number>` (meses novos fechados). Ao terminar com `novos > 0`, chama
+`atualizarHeatmapDOM` que substitui o bloco `#rentab-bloco` completo (gráfico
+acumulado + heatmap) sem re-renderizar a página.
+
+### Migração de versão
+
+Flag `db.historicoRentabilidadeVersao`. Versão atual: **4**. Ao subir para uma
+versão nova, apagar `historicoRentabilidade` e incrementar o número — o
+fechamento automático recalcula tudo no próximo boot. Nunca recalcular meses já
+fechados automaticamente fora da migração de versão.
+
+### Gráfico de linha acumulada
+
+`dadosChartJsRentabAcumulada(usuarioId, mtd)` gera séries acumuladas (Carteira e
+CDI) em % para Chart.js. Renderizado por `htmlChartJs`. Exibido dentro de
+`secaoRentabilidadeHTML`, que agrupa título + subtítulo + gráfico + heatmap.
+
+**Origem no zero**: a função prepende um ponto `(origemLabel, 0, 0)` antes do
+primeiro mês calculado. O label vem do `primeiroMes` (mês de formação) quando
+existe; caso contrário é derivado do mês anterior ao primeiro ponto. Ambas as
+linhas partem do mesmo 0% — a divergência visual reflete apenas retorno
+incremental, nunca artefato de base diferente.
+
+### Heatmap (mês a mês)
+
+Células renderizadas por `heatmapCelulasHTML`. Dimensões atuais: `72px` de
+largura, `padding: 4px 5px` (compacto). Cores:
+- **Acima do CDI**: verde claro.
+- **Abaixo do CDI**: vermelho claro.
+- **Formação** (`primeiroMes`): neutro com texto "formação / sem base".
+- **Mês corrente** (`parcial: true`): fundo azul claro + borda tracejada + fontes
+  em azul `#2563eb` — identidade visual própria, separada das células fechadas.
+
+### Card "Resultado vs custo" (dashboard)
+
+O quarto KPI do Resumo exibe:
+- Valor principal: `(saldo + proventos − custo) / custo` em %.
+- Linha secundária: CDI estimado do mês atual (`cdiHoje.cdiMesEst`), vindo da
+  busca de CDI (BCB SGS 12) — substitui o chip de acumulado que existia antes.
+- Botão `?` que abre `#drawer-info-resultado-custo`: gaveta com os valores reais
+  do momento (resultado %, CDI/mês, acumulado carteira vs CDI, delta p.p.) e 4
+  parágrafos explicativos em linguagem leiga.
+
 ## Armazenamento (`armazem`)
 
 **Nunca usar `localStorage` diretamente.** Toda leitura/escrita passa por:
@@ -268,7 +355,7 @@ Princípios — manter consistência em telas novas:
   etc. Procurar pela tag para achar todos os pontos afetados.
 - **`APP_VERSAO`**: incrementar ao entregar uma versão com mudança relevante.
   Só alterar `var APP_VERSAO` (linha ~4095) — o rodapé usa essa variável.
-- **`BRAPI_TOKEN`**: hardcoded em `var BRAPI_TOKEN` (linha ~1792). Arquivo é
+- **`BRAPI_TOKEN`**: hardcoded em `var BRAPI_TOKEN` (linha ~1823). Arquivo é
   de uso pessoal; **nunca versionar/publicar com o token real**.
 - **Novo ativo ou tipo de transação**: atualizar `CLASSES`, `CLASSES_ORDEM`,
   `CLASSES_LANCAVEIS`, `CORES_CLASSE` e `TIPOS_POR_MERCADO`.

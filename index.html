@@ -436,21 +436,52 @@ a.nav-item:hover { color: var(--color-text); }
     color: var(--color-text-subtle);
     font-weight: 500;
 }
-/* mapa de calor mensal */
-.heatmap-wrap {
+/* [RENT v4] bloco rentabilidade: linhas acumuladas + heatmap */
+.rentab-bloco {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     padding: 20px 22px;
+    margin-top: 24px;
     margin-bottom: 24px;
+    box-shadow: var(--shadow-xs);
 }
-.heatmap-titulo {
+.rentab-bloco-titulo {
     font-size: var(--text-sm);
     font-weight: 700;
     color: var(--color-text-subtle);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+.rentab-bloco-sub {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
     margin-bottom: 14px;
+}
+.rentab-linha-wrap {
+    position: relative;
+    height: 280px;
+    margin-bottom: 18px;
+}
+/* mapa de calor mensal (agora dentro do rentab-bloco) */
+.heatmap-wrap {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin-bottom: 0;
+    border-top: 1px solid var(--color-border);
+    padding-top: 16px;
+    margin-top: 4px;
+}
+.heatmap-titulo {
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: var(--color-text-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
 }
 .heatmap-grid {
     display: flex;
@@ -459,9 +490,9 @@ a.nav-item:hover { color: var(--color-text); }
 }
 .heatmap-celula {
     flex: 0 0 auto;
-    width: 56px;
+    width: 72px;
     border-radius: 6px;
-    padding: 5px 4px 5px;
+    padding: 4px 5px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -471,10 +502,15 @@ a.nav-item:hover { color: var(--color-text); }
 .heatmap-celula.acima { background: rgba(34,197,94,0.13); border-color: rgba(34,197,94,0.2); }
 .heatmap-celula.abaixo { background: rgba(239,68,68,0.11); border-color: rgba(239,68,68,0.18); }
 .heatmap-celula.neutro { background: var(--color-surface-2, rgba(0,0,0,0.04)); border-color: var(--color-border); }
+/* Mês corrente parcial: azul claro, sobrescreve acima/abaixo */
+.heatmap-celula.parcial { background: rgba(37,99,235,0.07) !important; border-color: rgba(37,99,235,0.22) !important; border-style: dashed !important; opacity: 1; }
+.heatmap-celula.parcial .heatmap-mes { color: #2563eb; opacity: 0.8; }
+.heatmap-celula.parcial .heatmap-pct { color: #2563eb !important; }
+.heatmap-celula.parcial .heatmap-cdi-ref { color: rgba(37,99,235,0.55); }
 .heatmap-mes { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-subtle); }
 .heatmap-pct {
     font-family: var(--font-display);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
 }
@@ -1274,9 +1310,9 @@ a.nav-item:hover { color: var(--color-text); }
 .hist-tooltip-variacao.down { color: #f3a49e; }
 
 /* Empty-state panels */
-/* [UI v2] bar chart ocupa 65%, donut 35%; altura equalizada */
+/* [UI v5] bar chart ocupa 65%, donut 35%; altura bem maior para legibilidade */
 .panel-grid { display: grid; grid-template-columns: 65fr 35fr; gap: 16px; align-items: stretch; }
-.panel-grid > * { min-height: 380px; display: flex; flex-direction: column; }
+.panel-grid > * { min-height: 560px; display: flex; flex-direction: column; }
 .empty-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 32px 28px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; min-height: 220px; justify-content: center; box-shadow: var(--shadow-xs); }
 .empty-illustration { width: 96px; height: auto; color: var(--color-text-subtle); }
 .empty-title { font-size: var(--text-base); font-weight: 600; color: var(--color-text); }
@@ -1328,8 +1364,8 @@ a.nav-item:hover { color: var(--color-text); }
 .chart-legend-row { display: flex; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
 .chart-legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--color-text-muted); font-family: var(--font); }
 .chart-legend-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-.donut-wrap { display: flex; align-items: center; gap: 24px; position: relative; }
-.chart-svg-donut { width: 160px; height: 160px; flex-shrink: 0; }
+.donut-wrap { display: flex; align-items: center; justify-content: center; gap: 24px; position: relative; flex: 1; }
+.chart-svg-donut { width: 200px; height: 200px; flex-shrink: 0; }
 .donut-total { fill: var(--color-text); font-family: var(--font-display); font-weight: 600; font-size: 13px; }
 .donut-total-label { fill: var(--color-text-subtle); font-family: var(--font); font-size: 7px; text-transform: uppercase; letter-spacing: 0.04em; }
 .chart-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--color-text); }
@@ -1805,6 +1841,9 @@ var HIST_CACHE_KEY = 'DASH_FINANCE_HIST_CACHE_V1';
 var RANKING_CACHE_KEY = 'DASH_FINANCE_RANKING_CACHE_V1';
 // [CDI v1 · 11/10/2026] cache diário do CDI — uma chamada por dia por dispositivo
 var CDI_CACHE_KEY = 'DASH_FINANCE_CDI_CACHE_V1';
+// [RENT v2] cache de preços mensais históricos por ticker (24h — dado imutável)
+var HIST_MENSAL_CACHE_KEY = 'DASH_FINANCE_HIST_MENSAL_V1';
+var HIST_MENSAL_TTL_MS = 24 * 60 * 60 * 1000;
 // BCB SGS série 12 = CDI over diário (API pública, sem autenticação)
 var BCB_CDI_LATEST_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json';
 var BCB_CDI_PERIODO_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json';
@@ -2770,15 +2809,110 @@ function dadosChartJsProventos(evolucao) {
 // depois de montar o HTML no DOM.
 var _chartQueue = [];
 
-function htmlChartJs(id, dados, formatoY, altura) {
+function htmlChartJs(id, dados, formatoY, altura, tipo) {
     altura = altura || 200;
+    tipo = tipo || 'bar';
 
     // guarda config na fila; será processada após o innerHTML ser aplicado
-    _chartQueue.push({ id: id, dados: dados, formatoY: formatoY });
+    _chartQueue.push({ id: id, dados: dados, formatoY: formatoY, tipo: tipo });
 
     return '<div class="chart-wrap" style="position:relative;height:' + altura + 'px;">' +
-        '<canvas id="' + id + '" role="img" aria-label="Gráfico de barras"></canvas>' +
+        '<canvas id="' + id + '" role="img" aria-label="Gráfico"></canvas>' +
         '</div>';
+}
+
+// [RENT v4] Série acumulada carteira × CDI a partir do historicoRentabilidade.
+// Inclui MTD (mês corrente parcial) se fornecido. Ambas as linhas partem de 0%
+// no mês de formação (primeiroMes) para que carteira e CDI comecem juntos.
+// Retorna null se não houver nenhum ponto válido.
+function dadosChartJsRentabAcumulada(usuarioId, mtd) {
+    var db = loadDB();
+    var todoHist = (db.historicoRentabilidade || []).filter(function (h) {
+        return h.usuarioId === usuarioId;
+    });
+    todoHist.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
+
+    // Separar mês de formação (origem) dos meses com rentabilidade calculada
+    var primMes = null;
+    var hist = [];
+    todoHist.forEach(function (h) {
+        if (h.primeiroMes) { primMes = h; }
+        else if (h.rentabilidade !== null && h.rentabilidade !== undefined) { hist.push(h); }
+    });
+
+    // Monta lista de pontos: fechados + MTD (se houver e ainda não fechado)
+    var pontos = hist.slice();
+    if (mtd && mtd.rentabilidade !== null && mtd.rentabilidade !== undefined) {
+        var jaFechado = pontos.some(function (h) { return h.mes === mtd.mes; });
+        if (!jaFechado) pontos.push(mtd);
+    }
+    if (!pontos.length) return null;
+
+    var MESES_ABR = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    var labels = [];
+    var serieCart = [];
+    var serieCdi = [];
+    var acumCart = 1;
+    var acumCdi = 1;
+
+    // Ponto de origem: ambas as linhas partem de 0% no mês do primeiro aporte
+    var origemLabel;
+    if (primMes) {
+        var op = primMes.mes.split('-');
+        origemLabel = MESES_ABR[parseInt(op[1], 10) - 1] + '/' + op[0].slice(2);
+    } else {
+        // Sem primeiroMes: derivar do mês anterior ao primeiro ponto calculado
+        var fp = pontos[0].mes.split('-');
+        var fpAno = parseInt(fp[0], 10), fpMes = parseInt(fp[1], 10) - 1;
+        if (fpMes < 1) { fpMes = 12; fpAno -= 1; }
+        origemLabel = MESES_ABR[fpMes - 1] + '/' + String(fpAno).slice(2);
+    }
+    labels.push(origemLabel);
+    serieCart.push(0);
+    serieCdi.push(0);
+
+    pontos.forEach(function (h) {
+        var partes = h.mes.split('-');
+        var label = MESES_ABR[parseInt(partes[1], 10) - 1] + '/' + partes[0].slice(2);
+        if (h.parcial) label += '*';
+        labels.push(label);
+        acumCart *= (1 + Number(h.rentabilidade) / 100);
+        var cdi = (h.cdi !== null && h.cdi !== undefined) ? Number(h.cdi) : 0;
+        acumCdi *= (1 + cdi / 100);
+        serieCart.push(+( (acumCart - 1) * 100 ).toFixed(4));
+        serieCdi.push(+( (acumCdi - 1) * 100 ).toFixed(4));
+    });
+
+    return {
+        labels: labels,
+        datasets: [
+            {
+                label: 'Carteira',
+                data: serieCart,
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37, 99, 235, 0.12)',
+                fill: true,
+                tension: 0.25,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                pointBackgroundColor: '#2563eb',
+                borderWidth: 2,
+            },
+            {
+                label: 'CDI',
+                data: serieCdi,
+                borderColor: '#d97706',
+                backgroundColor: 'transparent',
+                fill: false,
+                tension: 0.25,
+                pointRadius: 3,
+                pointHoverRadius: 5,
+                pointBackgroundColor: '#d97706',
+                borderWidth: 2,
+                borderDash: [],
+            },
+        ],
+    };
 }
 
 function inicializarCharts() {
@@ -2791,15 +2925,17 @@ function inicializarCharts() {
         var existing = Chart.getChart(el);
         if (existing) existing.destroy();
 
-        var fmt = item.formatoY; // já é uma função real, passada pelo render
+        var fmt = item.formatoY;
+        var isLine = item.tipo === 'line';
 
         var cfg = {
-            type: 'bar',
+            type: isLine ? 'line' : 'bar',
             data: { labels: item.dados.labels, datasets: item.dados.datasets },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: { duration: 300 },
+                interaction: isLine ? { mode: 'index', intersect: false } : undefined,
                 plugins: {
                     legend: {
                         display: item.dados.datasets.length > 1,
@@ -2814,25 +2950,26 @@ function inicializarCharts() {
                     tooltip: {
                         callbacks: {
                             label: function (ctx) {
-                                return ' ' + ctx.dataset.label + ': ' + fmt(ctx.parsed.y);
+                                var y = isLine ? ctx.parsed.y : ctx.parsed.y;
+                                return ' ' + ctx.dataset.label + ': ' + fmt(y);
                             },
                         },
                     },
                 },
                 scales: {
                     x: {
-                        stacked: true,
+                        stacked: !isLine,
                         grid: { display: false },
                         border: { display: false },
                         ticks: { color: '#94a3b8', font: { size: 10 } },
                     },
                     y: {
-                        stacked: true,
+                        stacked: !isLine,
                         grid: { color: '#b0b7c3', lineWidth: 1, borderDash: [5, 3] },
                         border: { display: false, dash: [5, 3] },
                         ticks: {
                             color: '#64748b', font: { size: 10 },
-                            maxTicksLimit: 5,
+                            maxTicksLimit: 6,
                             callback: function (v) { return fmt(v); },
                         },
                     },
@@ -3149,6 +3286,38 @@ function setCachedHistorico(chave, pontos) {
         cache[chave] = { pontos: pontos, expiresAt: Date.now() + CACHE_TTL_MS };
         armazem.set(HIST_CACHE_KEY, JSON.stringify(cache));
     } catch (e) { /* localStorage cheio/bloqueado — segue sem cache */ }
+}
+
+// [RENT v2] Cache de preços mensais históricos por ticker.
+// Chave no cache: "B3:<TICKER>" ou "CRIPTO:<TICKER>" pra não misturar fontes.
+// Valor: { "2026-09": 49.12, "2026-08": 45.02, ... }  (anoMes → close)
+function getCachedHistoricoMensal(chave) {
+    try {
+        var raw = armazem.get(HIST_MENSAL_CACHE_KEY);
+        if (!raw) return null;
+        var cache = JSON.parse(raw);
+        var entry = cache[chave];
+        if (!entry || Date.now() > entry.expiresAt) return null;
+        return entry.precos;
+    } catch (e) { return null; }
+}
+
+function setCachedHistoricoMensal(chave, precos) {
+    try {
+        var raw = armazem.get(HIST_MENSAL_CACHE_KEY);
+        var cache = raw ? JSON.parse(raw) : {};
+        cache[chave] = { precos: precos, expiresAt: Date.now() + HIST_MENSAL_TTL_MS };
+        armazem.set(HIST_MENSAL_CACHE_KEY, JSON.stringify(cache));
+    } catch (e) { /* localStorage cheio/bloqueado — segue */ }
+}
+
+// [RENT v2] Converte o campo `date` da brapi (timestamp em segundos, confirmado
+// em teste de 11/10/2026) para "YYYY-MM". Também aceita string ISO como
+// fallback defensivo.
+function normalizarDataBrapi(ts) {
+    var ms = (typeof ts === 'string') ? Date.parse(ts) : (ts > 1e12 ? ts : ts * 1000);
+    if (!ms || isNaN(ms)) return null;
+    return new Date(ms).toISOString().slice(0, 7);
 }
 
 // Histórico de fechamento diário — endpoint /stocks/historical da brapi.
@@ -3656,6 +3825,92 @@ function buscarHistoricoDoAtivo(ticker) {
     var ativo = buscarAtivoPorTicker(ticker);
     if (ativo && ativo.classe === 'CRIPTO') return buscarHistoricoCripto(ticker);
     return buscarHistorico(ticker, '1mo', '1d');
+}
+
+/* =================================================================
+   PREÇOS MENSAIS HISTÓRICOS [RENT v2 · 11/10/2026]
+   Usados por patrimonioNaData() para reconstruir o valor de mercado
+   da carteira no último dia de cada mês fechado.
+
+   Brapi confirmado: range=2y&interval=1mo → HTTP 200 no plano atual.
+   date = timestamp em segundos = primeiro dia útil do mês.
+   close = fechamento do ÚLTIMO dia útil do mês (é o que precisamos).
+   ================================================================= */
+
+// B3: uma chamada range=2y/1mo por ticker → mapa { "2026-09": 49.12, ... }
+function buscarPrecosMensaisB3(ticker) {
+    var chave = 'B3:' + ticker;
+    var cached = getCachedHistoricoMensal(chave);
+    if (cached) return Promise.resolve(cached);
+
+    var url = BRAPI_HISTORICAL_URL + '?symbols=' + encodeURIComponent(ticker) + '&range=2y&interval=1mo';
+    return brapiFetch(url, { headers: { Authorization: 'Bearer ' + BRAPI_TOKEN } })
+        .then(function (resp) { return resp.ok ? resp.json() : null; })
+        .then(function (payload) {
+            if (!payload) return {};
+            var item = (payload.results || [])[0];
+            var lista = (item && item.data && item.data.historicalDataPrice) || [];
+            var mapa = {};
+            lista.forEach(function (p) {
+                var am = normalizarDataBrapi(p.date);
+                if (am && p.close) mapa[am] = p.close;
+            });
+            setCachedHistoricoMensal(chave, mapa);
+            return mapa;
+        })
+        .catch(function () { return {}; });
+}
+
+// Cripto: Binance klines mensais (interval=1M, limit=25). Mesmo mecanismo
+// de par BRL/USDT×USDTBRL de buscarHistoricoCripto, mas granularidade mensal.
+function buscarPrecosMensaisCripto(ticker) {
+    var chave = 'CRIPTO:' + ticker;
+    var cached = getCachedHistoricoMensal(chave);
+    if (cached) return Promise.resolve(cached);
+
+    var token = tokenCripto(ticker);
+    return resolverParesCripto([token]).then(function (pares) {
+        var r = pares[token];
+        if (!r) return {};
+
+        var par = r.brl || (r.usdt ? r.usdt : null);
+        var viaUsdt = !r.brl && !!r.usdt;
+        if (!par) return {};
+
+        var base = '/api/v3/klines?interval=1M&limit=25&symbol=';
+        var pedidos = [binanceGet(base + par)];
+        if (viaUsdt) pedidos.push(binanceGet(base + 'USDTBRL'));
+
+        return Promise.all(pedidos).then(function (k) {
+            var dolarPorMes = {};
+            if (k[1]) k[1].forEach(function (c) {
+                var am = new Date(c[0]).toISOString().slice(0, 7);
+                dolarPorMes[am] = Number(c[4]);
+            });
+
+            var mapa = {};
+            (k[0] || []).forEach(function (c) {
+                var am = new Date(c[0]).toISOString().slice(0, 7);
+                var close = Number(c[4]);
+                if (viaUsdt) {
+                    var taxa = dolarPorMes[am];
+                    if (!taxa) return;
+                    close = close * taxa;
+                }
+                if (am && close > 0) mapa[am] = close;
+            });
+
+            setCachedHistoricoMensal(chave, mapa);
+            return mapa;
+        });
+    }).catch(function () { return {}; });
+}
+
+// Roteador: decide a fonte pelo campo classe do ativo (mesmo padrão de buscarCotacoes)
+function buscarPrecosMensais(ticker, classe) {
+    if (classe === 'CRIPTO') return buscarPrecosMensaisCripto(ticker);
+    if (classe === 'RENDA_FIXA') return Promise.resolve({});
+    return buscarPrecosMensaisB3(ticker);
 }
 
 /* =================================================================
@@ -4815,75 +5070,328 @@ function buscarCDIMesFechado(anoMes) {
 }
 
 // Calcula custo acumulado de um usuário até (inclusive) uma data ISO YYYY-MM-DD
-function _custoAteData(usuarioId, dataLimite) {
+/* =================================================================
+   RENTABILIDADE MENSAL A MERCADO [RENT v2 · 11/10/2026]
+
+   Fórmula oficial:
+     Rentabilidade = (PF − PI − AportesLíquidos + Proventos) / PI
+   Onde:
+     PI = patrimônio a valor de mercado no último dia do mês anterior
+     PF = patrimônio a valor de mercado no último dia do mês
+     AportesLíquidos = capital que entrou/saiu nesse mês (COMPRA/APORTE/ENTRADA
+                       menos VENDA/SAIDA em valor financeiro)
+     Proventos = PROVENTO + RENDIMENTO_RF recebidos no mês (não alteram
+                 a posição; sem somá-los, a queda ex-dividendo distorceria o %
+   Fonte de preços:
+     B3 → buscarPrecosMensaisB3 (range=2y/1mo, HTTP 200 confirmado 11/10/2026)
+     Cripto → buscarPrecosMensaisCripto (Binance klines interval=1M)
+     RF → custo acumulado (sem fonte de cotação de mercado)
+   Fallback se não tiver preço → preço médio (custo/qtd) da posição naquela data
+   ================================================================= */
+
+// Último dia de calendar de um anoMes "YYYY-MM" → string "YYYY-MM-DD"
+function _ultimoDiaDoMes(anoMes) {
+    var ano = parseInt(anoMes.slice(0, 4), 10);
+    var mes = parseInt(anoMes.slice(5, 7), 10);
+    var d = new Date(ano, mes, 0).getDate();
+    return anoMes + '-' + (d < 10 ? '0' : '') + d;
+}
+
+// Patrimônio a valor de mercado no último dia do anoMes, dado um mapa de
+// preços mensais: { ticker: { "YYYY-MM": close } }
+// Para Renda Fixa, usa custo acumulado (APORTE + RENDIMENTO_RF − SAIDA).
+function patrimonioNaData(usuarioId, anoMes, precosMensaisPorTicker) {
     var db = loadDB();
+    var ativosPorId = ativosPorIdDe(db);
+    var dataLimite = _ultimoDiaDoMes(anoMes);
+
+    // Posições de ativos que têm motor (ACAO/FII/BDR/CRIPTO)
+    var txsMotor = ordenarTransacoes(
+        (db.transacoes || []).filter(function (t) {
+            return t.usuarioId === usuarioId && t.data <= dataLimite
+                && t.tipo !== 'PROVENTO' && t.tipo !== 'APORTE' && t.tipo !== 'RENDIMENTO_RF';
+        })
+    );
+    var carteira = processarCarteira(txsMotor, ativosPorId);
+    var posicoes = carteira.posicoes;
+
+    var total = 0;
+
+    // Ativos processados pelo motor
+    Object.keys(posicoes).forEach(function (ativoId) {
+        var pos = posicoes[ativoId];
+        if (!pos.ativo || pos.quantidade <= QTD_EPSILON) return;
+        var ticker = pos.ativo.ticker;
+        var classe = pos.ativo.classe;
+        if (classe === 'RENDA_FIXA') return; // tratado abaixo
+
+        var precosMes = precosMensaisPorTicker[ticker];
+        var preco = precosMes ? (precosMes[anoMes] || null) : null;
+
+        if (preco !== null && preco > 0) {
+            total += pos.quantidade * preco;
+        } else {
+            // Fallback: preço médio de custo
+            var pm = pos.qtdComCusto > 0 ? pos.custoTotal / pos.qtdComCusto : 0;
+            total += pos.quantidade * pm;
+        }
+    });
+
+    // Renda fixa: custo acumulado (APORTE) + rendimentos − saídas até a data
+    var ativosRF = (db.ativos || []).filter(function (a) { return a.classe === 'RENDA_FIXA'; });
+    ativosRF.forEach(function (ativo) {
+        var saldoRF = (db.transacoes || []).filter(function (t) {
+            return t.usuarioId === usuarioId && t.ativoId === ativo.id && t.data <= dataLimite;
+        }).reduce(function (s, t) {
+            if (t.tipo === 'APORTE') return s + Number(t.valor || 0);
+            if (t.tipo === 'RENDIMENTO_RF') return s + Number(t.valor || 0);
+            if (t.tipo === 'SAIDA') return s - Number(t.valor || 0);
+            return s;
+        }, 0);
+        if (saldoRF > 0) total += saldoRF;
+    });
+
+    return total;
+}
+
+// Soma PROVENTO + RENDIMENTO_RF recebidos no mês (valor em reais)
+function proventosNoMes(usuarioId, anoMes) {
+    var db = loadDB();
+    var ini = anoMes + '-01';
+    var fim = _ultimoDiaDoMes(anoMes);
     return (db.transacoes || []).filter(function (t) {
-        return t.usuarioId === usuarioId && t.data <= dataLimite;
+        return t.usuarioId === usuarioId
+            && (t.tipo === 'PROVENTO' || t.tipo === 'RENDIMENTO_RF')
+            && t.data >= ini && t.data <= fim;
+    }).reduce(function (s, t) { return s + Number(t.valor || 0); }, 0);
+}
+
+// Fluxos líquidos de capital no mês: dinheiro novo que entrou menos o que saiu.
+// Não inclui conversão/stake/entrada (sem custo de capital).
+// Não inclui proventos (tratados separadamente na fórmula).
+function aportesLiquidosNoMes(usuarioId, anoMes) {
+    var db = loadDB();
+    var ativosPorId = ativosPorIdDe(db);
+    var ini = anoMes + '-01';
+    var fim = _ultimoDiaDoMes(anoMes);
+    return (db.transacoes || []).filter(function (t) {
+        return t.usuarioId === usuarioId && t.data >= ini && t.data <= fim;
     }).reduce(function (s, t) {
-        // campos corretos do modelo: precoUnitario, corretagemTaxas, valor
+        var ativo = ativosPorId[t.ativoId];
         if (t.tipo === 'COMPRA') return s + (Number(t.quantidade) * Number(t.precoUnitario) + (Number(t.corretagemTaxas) || 0));
-        if (t.tipo === 'APORTE') return s + Number(t.valor || 0);
-        if (t.tipo === 'RENDIMENTO_RF') return s + Number(t.valor || 0);
+        if (t.tipo === 'APORTE') return s + Number(t.valor || 0); // RF
+        if (t.tipo === 'VENDA') return s - (Number(t.quantidade) * Number(t.precoUnitario) - (Number(t.corretagemTaxas) || 0));
+        if (t.tipo === 'SAIDA') return s - Number(t.valor || 0); // RF saindo
         return s;
+        // ENTRADA, STAKE, CONVERSAO, PROVENTO, RENDIMENTO_RF → sem fluxo de capital
     }, 0);
 }
 
-// Calcula rentabilidade aproximada da carteira em um mês fechado.
-// Estratégia: compara patrimônio aportado no início vs fim (inclui rendimentos RF do mês).
-// Mês inaugural (sem patrimônio anterior): marca como 0,00% com flag primeiroMes=true.
-function rentabilidadeCarteiraMes(usuarioId, anoMes) {
-    var partes = anoMes.split('-');
-    var ano = parseInt(partes[0], 10);
-    var mes = parseInt(partes[1], 10);
-    var ultimoDia = new Date(ano, mes, 0).getDate();
-    var fimMes = anoMes + '-' + (ultimoDia < 10 ? '0' : '') + ultimoDia;
-    // dia anterior ao início do mês = último dia do mês anterior
-    var d = new Date(ano, mes - 1, 0);
-    var diaAnterior = d.getFullYear() + '-' + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1) + '-' + (d.getDate() < 10 ? '0' : '') + d.getDate();
+// [RENT v4 · 11/10/2026] Calcula rentabilidade a valor de mercado de um mês fechado.
+// Usa Modified Dietz simplificado (aportes líquidos ponderados a meio do mês).
+//
+// Fórmula:
+//   numerador   = PatrimonioFim − PatrimonioInicio − AportesLiquidos + Proventos
+//   denominador = PatrimonioInicio + AportesLiquidos × 0,5
+//   rentabilidade = numerador / denominador × 100
+//
+// Mês de formação: SOMENTE quando não havia patrimônio no início do mês
+// (carteira ainda não existia). Aportes grandes em carteira já existente
+// usam Dietz e mostram %.
+function rentabilidadeCarteiraMes(usuarioId, anoMes, precosMensaisPorTicker) {
+    var ano = parseInt(anoMes.slice(0, 4), 10);
+    var mes = parseInt(anoMes.slice(5, 7), 10);
+    var anoMesAnterior;
+    if (mes === 1) { anoMesAnterior = (ano - 1) + '-12'; }
+    else { anoMesAnterior = ano + '-' + (mes - 1 < 10 ? '0' : '') + (mes - 1); }
 
-    var custoInicio = _custoAteData(usuarioId, diaAnterior);
-    var custoFim    = _custoAteData(usuarioId, fimMes);
+    var patrimonioFim = patrimonioNaData(usuarioId, anoMes, precosMensaisPorTicker);
+    if (patrimonioFim <= 0) return null;
 
-    // Sem nenhum patrimônio até o fim do mês: nada a calcular
-    if (custoFim <= 0) return null;
+    var patrimonioInicio = patrimonioNaData(usuarioId, anoMesAnterior, precosMensaisPorTicker);
+    var aportes  = aportesLiquidosNoMes(usuarioId, anoMes);
+    var proventos = proventosNoMes(usuarioId, anoMes);
 
-    // Primeiro mês da carteira (nenhum patrimônio antes): marca como inaugural
-    if (custoInicio <= 0) return { rentabilidade: 0, primeiroMes: true };
+    // Formação: só quando realmente não havia carteira antes
+    if (patrimonioInicio <= 0) {
+        return {
+            rentabilidade: 0,
+            primeiroMes: true,
+            patrimonioInicio: 0,
+            patrimonioFim: patrimonioFim,
+            aportesLiquidos: aportes,
+            proventos: proventos,
+        };
+    }
 
-    // Rendimentos RF do mês (único ganho mensurável sem cotações históricas)
-    var db = loadDB();
-    var rendRFMes = (db.transacoes || []).filter(function (t) {
-        return t.usuarioId === usuarioId && t.tipo === 'RENDIMENTO_RF'
-            && t.data >= anoMes + '-01' && t.data <= fimMes;
-    }).reduce(function (s, t) { return s + Number(t.valor || 0); }, 0);
+    // Modified Dietz: aportes líquidos com peso 0,5 (meio do mês)
+    var numerador = patrimonioFim - patrimonioInicio - aportes + proventos;
+    var denominador = patrimonioInicio + aportes * 0.5;
+    if (denominador <= 0) {
+        return {
+            rentabilidade: 0,
+            primeiroMes: true,
+            patrimonioInicio: patrimonioInicio,
+            patrimonioFim: patrimonioFim,
+            aportesLiquidos: aportes,
+            proventos: proventos,
+        };
+    }
+    var rentabilidade = (numerador / denominador) * 100;
 
-    // Base: custo médio entre início e fim do mês.
-    // Isso dilui aportes intermediários e evita a distorção de usar só o patrimônio inicial
-    // quando grandes aportes chegaram durante o mês (ex: set/26 foi de 56 para 581).
-    var custoMedio = (custoInicio + custoFim) / 2;
-    var rentabilidade = (rendRFMes / custoMedio) * 100;
-    return { rentabilidade: rentabilidade, primeiroMes: false };
+    return {
+        rentabilidade: rentabilidade,
+        primeiroMes: false,
+        patrimonioInicio: patrimonioInicio,
+        patrimonioFim: patrimonioFim,
+        aportesLiquidos: aportes,
+        proventos: proventos,
+    };
 }
 
-// Fecha todos os meses anteriores ao corrente que ainda não foram fechados.
-// Chamado no boot do app.
+// [RENT v4] Cache de MTD (mês corrente parcial) — 1× por abertura do app
+var _mtdCache = null;
+
+function _anoMesAtual() {
+    var h = new Date();
+    return h.getFullYear() + '-' + (h.getMonth() + 1 < 10 ? '0' : '') + (h.getMonth() + 1);
+}
+
+// Patrimônio a valor de mercado AGORA (cotações ao vivo + RF contábil)
+function patrimonioMercadoAtual(usuarioId, cotacoes) {
+    var db = loadDB();
+    var ativosPorId = ativosPorIdDe(db);
+    var hojeISO = new Date().toISOString().slice(0, 10);
+    var txsMotor = ordenarTransacoes(
+        (db.transacoes || []).filter(function (t) {
+            return t.usuarioId === usuarioId && t.data <= hojeISO
+                && t.tipo !== 'PROVENTO' && t.tipo !== 'APORTE' && t.tipo !== 'RENDIMENTO_RF';
+        })
+    );
+    var posicoes = processarCarteira(txsMotor, ativosPorId).posicoes;
+    var total = 0;
+    Object.keys(posicoes).forEach(function (ativoId) {
+        var pos = posicoes[ativoId];
+        if (!pos.ativo || pos.quantidade <= QTD_EPSILON) return;
+        if (pos.ativo.classe === 'RENDA_FIXA') return;
+        var cot = cotacoes && cotacoes[pos.ativo.ticker];
+        var preco = (cot && cot.precoAtual > 0) ? cot.precoAtual : null;
+        if (preco !== null) {
+            total += pos.quantidade * preco;
+        } else {
+            var pm = pos.qtdComCusto > 0 ? pos.custoTotal / pos.qtdComCusto : 0;
+            total += pos.quantidade * pm;
+        }
+    });
+    (db.ativos || []).filter(function (a) { return a.classe === 'RENDA_FIXA'; }).forEach(function (ativo) {
+        var saldoRF = (db.transacoes || []).filter(function (t) {
+            return t.usuarioId === usuarioId && t.ativoId === ativo.id && t.data <= hojeISO;
+        }).reduce(function (s, t) {
+            if (t.tipo === 'APORTE') return s + Number(t.valor || 0);
+            if (t.tipo === 'RENDIMENTO_RF') return s + Number(t.valor || 0);
+            if (t.tipo === 'SAIDA') return s - Number(t.valor || 0);
+            return s;
+        }, 0);
+        if (saldoRF > 0) total += saldoRF;
+    });
+    return total;
+}
+
+// Calcula MTD do mês corrente (1× por sessão). Não grava no histórico.
+// Retorna { mes, rentabilidade, cdi, parcial: true, ... } ou null.
+function obterMTD(usuarioId, cotacoes, cdiHoje) {
+    var anoMes = _anoMesAtual();
+    if (_mtdCache && _mtdCache.usuarioId === usuarioId && _mtdCache.mes === anoMes) {
+        return _mtdCache;
+    }
+
+    var ano = parseInt(anoMes.slice(0, 4), 10);
+    var mes = parseInt(anoMes.slice(5, 7), 10);
+    var anoMesAnterior = mes === 1 ? (ano - 1) + '-12' : ano + '-' + (mes - 1 < 10 ? '0' : '') + (mes - 1);
+
+    // Início: prefere patrimonioFim do último mês fechado no histórico
+    var db = loadDB();
+    var histPrev = (db.historicoRentabilidade || []).filter(function (h) {
+        return h.usuarioId === usuarioId && h.mes === anoMesAnterior && !h.primeiroMes;
+    })[0];
+    var patrimonioInicio = histPrev && histPrev.patrimonioFim != null
+        ? Number(histPrev.patrimonioFim)
+        : patrimonioNaData(usuarioId, anoMesAnterior, {});
+
+    if (patrimonioInicio <= 0) {
+        _mtdCache = null;
+        return null; // ainda em formação
+    }
+
+    var patrimonioFim = patrimonioMercadoAtual(usuarioId, cotacoes || {});
+    if (patrimonioFim <= 0) {
+        _mtdCache = null;
+        return null;
+    }
+
+    var aportes = aportesLiquidosNoMes(usuarioId, anoMes);
+    var proventos = proventosNoMes(usuarioId, anoMes);
+    var numerador = patrimonioFim - patrimonioInicio - aportes + proventos;
+    var denominador = patrimonioInicio + aportes * 0.5;
+    if (denominador <= 0) {
+        _mtdCache = null;
+        return null;
+    }
+    var rentabilidade = (numerador / denominador) * 100;
+
+    // CDI parcial: capitaliza o diário pelos dias decorridos (aprox. du = dia × 22/30)
+    var dia = new Date().getDate();
+    var duAprox = Math.max(1, Math.min(22, Math.round(dia * 22 / 30)));
+    var cdiParcial = null;
+    if (cdiHoje && cdiHoje.cdiDiario) {
+        cdiParcial = (Math.pow(1 + Number(cdiHoje.cdiDiario) / 100, duAprox) - 1) * 100;
+    }
+
+    _mtdCache = {
+        usuarioId: usuarioId,
+        mes: anoMes,
+        rentabilidade: rentabilidade,
+        cdi: cdiParcial,
+        parcial: true,
+        primeiroMes: false,
+        patrimonioInicio: patrimonioInicio,
+        patrimonioFim: patrimonioFim,
+        aportesLiquidos: aportes,
+        proventos: proventos,
+    };
+    return _mtdCache;
+}
+
+// [RENT v2 · 11/10/2026] Fecha todos os meses anteriores ao corrente que ainda
+// não foram fechados. Agora async: busca preços históricos na brapi/Binance
+// antes de calcular a rentabilidade de cada mês. Retorna Promise<number> com
+// a quantidade de meses novos salvos (0 = nada de novo).
 function fecharMesAnteriorSeNecessario(usuarioId) {
     var hoje = new Date();
     var db = loadDB();
+
+    // [RENT v4] Migração: força recálculo com formação só quando inicio <= 0.
+    if (!db.historicoRentabilidadeVersao || db.historicoRentabilidadeVersao < 4) {
+        db.historicoRentabilidade = [];
+        db.historicoRentabilidadeVersao = 4;
+        saveDB(db);
+    }
+
     db.historicoRentabilidade = db.historicoRentabilidade || [];
 
     // Descobre o mês mais antigo com transação deste usuário
     var txs = (db.transacoes || []).filter(function (t) { return t.usuarioId === usuarioId && t.data; });
-    if (!txs.length) return;
+    if (!txs.length) return Promise.resolve(0);
     txs.sort(function (a, b) { return a.data < b.data ? -1 : 1; });
-    var primeiraTx = txs[0].data; // YYYY-MM-DD
+    var primeiraTx = txs[0].data;
 
-    // Itera do mês da primeira tx até o mês anterior ao atual
     var anoInicio = parseInt(primeiraTx.slice(0, 4), 10);
     var mesInicio = parseInt(primeiraTx.slice(5, 7), 10);
     var anoFim = hoje.getFullYear();
-    var mesFim = hoje.getMonth(); // 0-based, então é o mês ANTERIOR ao atual (hoje.getMonth() = mês atual 0-based)
+    var mesFim = hoje.getMonth(); // 0-based = mês anterior ao atual
 
+    // Coleta meses pendentes
+    var pendentes = [];
     for (var ano = anoInicio; ano <= anoFim; ano++) {
         var mStart = (ano === anoInicio) ? mesInicio : 1;
         var mEnd   = (ano === anoFim)   ? mesFim    : 12;
@@ -4892,15 +5400,46 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
             var jaFechou = db.historicoRentabilidade.some(function (h) {
                 return h.usuarioId === usuarioId && h.mes === anoMes;
             });
-            if (jaFechou) continue;
+            if (!jaFechou) pendentes.push(anoMes);
+        }
+    }
+    if (!pendentes.length) return Promise.resolve(0);
 
-            var resultado = rentabilidadeCarteiraMes(usuarioId, anoMes);
-            var rentab = resultado.rentabilidade;
+    // Descobre todos os tickers com posição em algum dos meses pendentes
+    // (conservador: usa todos os ativos do usuário — pré-filtragem por mês
+    // é opcional e seria mais complexa; na prática a carteira não tem dezenas
+    // de tickers)
+    var dbNow = loadDB();
+    var ativosPorId = ativosPorIdDe(dbNow);
+    var tickersComClasse = [];
+    var vistos = {};
+    (dbNow.ativos || []).forEach(function (a) {
+        if (!vistos[a.ticker]) {
+            vistos[a.ticker] = true;
+            tickersComClasse.push({ ticker: a.ticker, classe: a.classe });
+        }
+    });
 
-            // busca CDI histórico do mês; salva com fallback fixo se falhar
-            (function (am, r, isPrimeiro) {
-                buscarCDIMesFechado(am).then(function (cdi) {
-                    // BCB retornou null (offline): tenta usar último CDI diário em cache × 22 du
+    // Busca preços mensais de todos os tickers em paralelo
+    // (brapi ainda serializa via brapiFilaPromise por ticker, cripto não)
+    var promessasPrecos = tickersComClasse.map(function (tc) {
+        return buscarPrecosMensais(tc.ticker, tc.classe).then(function (mapa) {
+            return { ticker: tc.ticker, mapa: mapa };
+        });
+    });
+
+    return Promise.all(promessasPrecos).then(function (resultados) {
+        var precosMensaisPorTicker = {};
+        resultados.forEach(function (r) { precosMensaisPorTicker[r.ticker] = r.mapa; });
+
+        // Fecha cada mês pendente em série (processo síncrono depois dos fetches)
+        var chain = Promise.resolve(0);
+        pendentes.forEach(function (am) {
+            chain = chain.then(function (novos) {
+                var resultado = rentabilidadeCarteiraMes(usuarioId, am, precosMensaisPorTicker);
+                if (!resultado) return novos; // sem patrimônio neste mês
+
+                return buscarCDIMesFechado(am).then(function (cdi) {
                     if (cdi === null) {
                         var ultimoCache = (function () {
                             try { return JSON.parse(armazem.get(CDI_CACHE_KEY) || 'null'); } catch (e) { return null; }
@@ -4908,68 +5447,113 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                         var ref = (ultimoCache && ultimoCache.cdiDiario) ? ultimoCache.cdiDiario : 0.0402;
                         cdi = (Math.pow(1 + ref / 100, 22) - 1) * 100;
                     }
-                    var dbNow = loadDB();
-                    dbNow.historicoRentabilidade = dbNow.historicoRentabilidade || [];
-                    var jaSalvou = dbNow.historicoRentabilidade.some(function (h) {
+
+                    var dbSave = loadDB();
+                    dbSave.historicoRentabilidade = dbSave.historicoRentabilidade || [];
+                    var jaSalvou = dbSave.historicoRentabilidade.some(function (h) {
                         return h.usuarioId === usuarioId && h.mes === am;
                     });
                     if (!jaSalvou) {
-                        dbNow.historicoRentabilidade.push({
+                        dbSave.historicoRentabilidade.push({
                             mes: am,
                             usuarioId: usuarioId,
-                            rentabilidade: r,
+                            rentabilidade: resultado.rentabilidade,
                             cdi: cdi,
-                            primeiroMes: isPrimeiro || undefined,
+                            primeiroMes: resultado.primeiroMes || undefined,
+                            patrimonioInicio: resultado.patrimonioInicio,
+                            patrimonioFim: resultado.patrimonioFim,
+                            aportesLiquidos: resultado.aportesLiquidos,
+                            proventos: resultado.proventos,
                         });
-                        saveDB(dbNow);
+                        saveDB(dbSave);
+                        return novos + 1;
                     }
+                    return novos;
                 });
-            })(anoMes, rentab, resultado.primeiroMes);
-        }
-    }
+            });
+        });
+        return chain;
+    });
 }
 
-// Monta o HTML do mapa de calor de rentabilidade mensal
-function mapaRentabilidadeHTML(usuarioId) {
+// [RENT v4] Atualiza o bloco de rentabilidade (linhas + heatmap) sem re-render da página.
+function atualizarHeatmapDOM(usuarioId) {
+    var container = document.getElementById('rentab-bloco');
+    if (!container) return;
+    container.outerHTML = secaoRentabilidadeHTML(usuarioId);
+    inicializarCharts();
+}
+
+// Células do heatmap (só o miolo — sem wrapper externo). mtd opcional.
+function heatmapCelulasHTML(usuarioId, mtd) {
     var db = loadDB();
     var hist = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; });
-    if (!hist.length) return '';
-
     hist.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
-
+    if (mtd && !hist.some(function (h) { return h.mes === mtd.mes; })) {
+        hist = hist.concat([mtd]);
+    }
+    if (!hist.length) {
+        return '<p style="font-size:var(--text-xs);color:var(--color-text-subtle)">Calculando histórico…</p>';
+    }
     var MESES_ABR = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-    var celulas = hist.map(function (h) {
+    return hist.map(function (h) {
         var partes = h.mes.split('-');
         var label = MESES_ABR[parseInt(partes[1], 10) - 1] + '/' + partes[0].slice(2);
         var rentab = (h.rentabilidade !== null && h.rentabilidade !== undefined) ? Number(h.rentabilidade) : null;
         var cdi    = (h.cdi !== null && h.cdi !== undefined) ? Number(h.cdi) : null;
-
-        // Mês inaugural (carteira começou neste mês, sem base de comparação)
         if (h.primeiroMes) {
-            return '<div class="heatmap-celula neutro" title="' + h.mes + ' — mês de início da carteira">' +
+            return '<div class="heatmap-celula neutro" title="' + h.mes + ' — mês de formação">' +
                 '<span class="heatmap-mes">' + label + '</span>' +
-                '<span class="heatmap-pct" style="font-size:9px;font-weight:500;color:var(--color-text-subtle)">início</span>' +
-                '<span class="heatmap-cdi-ref">mês inaugural</span></div>';
+                '<span class="heatmap-pct" style="font-size:9px;font-weight:500;color:var(--color-text-subtle)">formação</span>' +
+                '<span class="heatmap-cdi-ref">sem base</span></div>';
         }
-
-        var classe = (rentab !== null && cdi !== null)
-            ? (rentab >= cdi ? 'acima' : 'abaixo')
-            : 'neutro';
+        var classe = (rentab !== null && cdi !== null) ? (rentab >= cdi ? 'acima' : 'abaixo') : 'neutro';
+        if (h.parcial) classe += ' parcial';
         var pctStr = rentab !== null ? (rentab >= 0 ? '+' : '') + fmt2(rentab) + '%' : '—';
-        var cdiRef = cdi !== null
-            ? '<span class="heatmap-cdi-ref">CDI ' + fmt2(cdi) + '%</span>'
-            : '<span class="heatmap-cdi-ref">CDI —</span>';
-
-        return '<div class="heatmap-celula ' + classe + '" title="' + h.mes + '">' +
-            '<span class="heatmap-mes">' + label + '</span>' +
+        var cdiRef = h.parcial
+            ? (cdi !== null
+                ? '<span class="heatmap-cdi-ref">CDI ~' + fmt2(cdi) + '% · parcial</span>'
+                : '<span class="heatmap-cdi-ref">parcial</span>')
+            : (cdi !== null
+                ? '<span class="heatmap-cdi-ref">CDI ' + fmt2(cdi) + '%</span>'
+                : '<span class="heatmap-cdi-ref">CDI —</span>');
+        return '<div class="heatmap-celula ' + classe + '" title="' + h.mes + (h.parcial ? ' (em andamento)' : '') + '">' +
+            '<span class="heatmap-mes">' + label + (h.parcial ? '*' : '') + '</span>' +
             '<span class="heatmap-pct">' + pctStr + '</span>' +
             cdiRef + '</div>';
     }).join('');
+}
 
-    return '<div class="heatmap-wrap">' +
-        '<p class="heatmap-titulo">Rentabilidade mensal vs CDI</p>' +
-        '<div class="heatmap-grid">' + celulas + '</div>' +
-        '</div>';
+// [RENT v4] Bloco completo: gráfico de linhas acumuladas + heatmap mês a mês
+function secaoRentabilidadeHTML(usuarioId, mtd) {
+    mtd = mtd || _mtdCache;
+    var dadosLinha = dadosChartJsRentabAcumulada(usuarioId, mtd);
+    var graficoHTML;
+    if (dadosLinha) {
+        graficoHTML = htmlChartJs(
+            'chart-rentab-acum',
+            dadosLinha,
+            function (v) { return (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; },
+            280,
+            'line'
+        );
+    } else {
+        graficoHTML = '<p style="font-size:var(--text-sm);color:var(--color-text-subtle);padding:24px 0;text-align:center">' +
+            'O gráfico acumulado aparece após o primeiro mês com rentabilidade calculada.</p>';
+    }
+
+    var sub = mtd
+        ? 'Retorno acumulado vs CDI · mês corrente parcial (atualizado 1× por abertura)'
+        : 'Retorno acumulado da carteira comparado ao CDI (meses de formação excluídos)';
+
+    return '<div id="rentab-bloco" class="rentab-bloco">' +
+        '<p class="rentab-bloco-titulo">Rentabilidade vs CDI</p>' +
+        '<p class="rentab-bloco-sub">' + sub + '</p>' +
+        graficoHTML +
+        '<div class="heatmap-wrap">' +
+        '<p class="heatmap-titulo">Mês a mês</p>' +
+        '<div class="heatmap-grid">' + heatmapCelulasHTML(usuarioId, mtd) + '</div>' +
+        '</div></div>';
 }
 
 function renderRankingsHTML(rankings) {
@@ -5076,7 +5660,7 @@ function renderDashboard(user) {
             evolucaoHTML = '<div class="empty-panel chart-panel"><p class="empty-title chart-panel-title">Evolução do patrimônio</p>' +
                 htmlChartJs('chart-evolucao', evolucaoDados,
                     function(v){ return 'R$ ' + v.toLocaleString('pt-BR', {maximumFractionDigits:0}); },
-                    280) +
+                    480) +
                 '</div>';
         } else {
             evolucaoHTML = '<div class="empty-panel">' + emptyIllustrationBars() +
@@ -5113,14 +5697,6 @@ function renderDashboard(user) {
         // [RF v1] lucro total = lucro de mercado (RV) + rendimentos de RF
         var lucroTotal = (kpis.lucroPrejuizo !== null ? kpis.lucroPrejuizo : 0) + rfRendimentos;
         var temLucroTotal = kpis.lucroPrejuizo !== null || rfRendimentos > 0.005;
-        var rentabilidadeTotal = kpis.valorInvestido > 0 ? (lucroTotal / kpis.valorInvestido) * 100 : null;
-        var lucroClasse = temLucroTotal ? (lucroTotal >= 0 ? 'up' : 'down') : '';
-        var lucroBloco = temLucroTotal
-            ? '<span class="kpi-value ' + (lucroTotal >= 0 ? 'up' : 'down') + '">R$ ' + fmt2(lucroTotal) + '</span>' +
-              (rentabilidadeTotal !== null
-                  ? '<span class="trend ' + (lucroTotal >= 0 ? 'up' : 'down') + '">' + (lucroTotal >= 0 ? '▲' : '▼') + ' ' + fmt2(Math.abs(rentabilidadeTotal)) + '% · ' + (lucroTotal >= 0 ? 'acima do custo' : 'abaixo do custo') + '</span>'
-                  : '<span class="trend ' + (lucroTotal >= 0 ? 'up' : 'down') + '">' + (lucroTotal >= 0 ? 'acima do custo' : 'abaixo do custo') + '</span>')
-            : '<span class="kpi-value">—</span><span class="trend neutral">requer cotação de mercado</span>';
 
         // Card de proventos: total recebido + YoC calculado só sobre base geradora de renda (ACAO e FII)
         var provTotal = totalProventos(user.id);
@@ -5137,55 +5713,65 @@ function renderDashboard(user) {
               '<span class="trend up">' + (yocGeral !== null ? 'YoC ' + fmt2(yocGeral) + '% s/ custo' : 'dividendos recebidos') + '</span>'
             : '<span class="kpi-value">R$ 0,00</span><span class="trend neutral">nenhum provento ainda</span>';
 
-        // [CDI v1] strip de rentabilidade vs CDI
-        var rentabStripHTML = '';
-        if (rentabilidadeTotal !== null || cdiHoje) {
-            var rentabValor = rentabilidadeTotal !== null ? fmt2(rentabilidadeTotal) + '%' : '—';
-            var rentabClasse = rentabilidadeTotal !== null ? (rentabilidadeTotal >= 0 ? 'up' : 'down') : 'neutro';
-            var cdiMesStr = cdiHoje ? fmt2(cdiHoje.cdiMesEst) + '%' : '—';
-            var deltaPct = (rentabilidadeTotal !== null && cdiHoje)
-                ? (rentabilidadeTotal - cdiHoje.cdiMesEst)
-                : null;
-            var deltaStr = deltaPct !== null
-                ? (deltaPct >= 0 ? '+' : '') + fmt2(deltaPct) + '%'
-                : '—';
-            var deltaClasse = deltaPct !== null ? (deltaPct >= 0 ? 'up' : 'down') : 'neutro';
-            rentabStripHTML =
-                '<div class="rentab-strip">' +
-                '<div class="rentab-card carteira">' +
-                '<span class="kpi-label">Rentabilidade total</span>' +
-                '<span class="rentab-valor ' + rentabClasse + '">' + rentabValor + '</span>' +
-                '<span class="rentab-sub">sobre o custo de aquisição</span>' +
-                '</div>' +
-                '<div class="rentab-card cdi">' +
-                '<span class="kpi-label">CDI estimado / mês</span>' +
-                '<span class="rentab-valor neutro">' + cdiMesStr + '</span>' +
-                '<span class="rentab-sub">' + (cdiHoje ? 'CDI diário: ' + fmt4(cdiHoje.cdiDiario) + '% · base 22 d.u.' : 'não disponível agora') + '</span>' +
-                '</div>' +
-                '<div class="rentab-card delta">' +
-                '<span class="kpi-label">Carteira vs CDI</span>' +
-                '<span class="rentab-valor ' + deltaClasse + '">' + deltaStr + '</span>' +
-                '<span class="rentab-sub">' + (deltaPct !== null ? (deltaPct >= 0 ? 'acima do CDI' : 'abaixo do CDI') : '—') + '</span>' +
-                '</div>' +
-                '</div>';
+        // [UI v5] Resultado vs custo (estilo Smartfolio): inclui proventos de bolsa no numerador.
+        // NÃO misturar com CDI mensal — CDI fica no bloco temporal (linhas + heatmap).
+        var resultadoVsCusto = kpis.valorInvestido > 0
+            ? ((lucroTotal + provTotal) / kpis.valorInvestido) * 100
+            : null;
+        var lucroClasse = temLucroTotal ? (lucroTotal >= 0 ? 'up' : 'down') : '';
+        var lucroBloco = temLucroTotal
+            ? '<span class="kpi-value ' + (lucroTotal >= 0 ? 'up' : 'down') + '">R$ ' + fmt2(lucroTotal) + '</span>' +
+              (resultadoVsCusto !== null
+                  ? '<span class="trend ' + (lucroTotal >= 0 ? 'up' : 'down') + '">' + (lucroTotal >= 0 ? '▲' : '▼') + ' ' + fmt2(Math.abs(resultadoVsCusto)) + '% · ' + (lucroTotal >= 0 ? 'acima do custo' : 'abaixo do custo') + '</span>'
+                  : '<span class="trend ' + (lucroTotal >= 0 ? 'up' : 'down') + '">' + (lucroTotal >= 0 ? 'acima do custo' : 'abaixo do custo') + '</span>')
+            : '<span class="kpi-value">—</span><span class="trend neutral">requer cotação de mercado</span>';
+
+        // MTD + acumulado temporal (mesma base do gráfico de linhas)
+        var mtdAgora = obterMTD(user.id, cotacoes, cdiHoje);
+        var serieAcum = dadosChartJsRentabAcumulada(user.id, mtdAgora);
+        var acumCart = null;
+        var acumCdi = null;
+        if (serieAcum && serieAcum.datasets[0].data.length) {
+            var dCart = serieAcum.datasets[0].data;
+            var dCdi = serieAcum.datasets[1].data;
+            acumCart = dCart[dCart.length - 1];
+            acumCdi = dCdi[dCdi.length - 1];
         }
 
-        // [UI v2] card Posições substituído por Rentabilidade + CDI Estimado/Mês
-        var rentabPct = rentabilidadeTotal !== null ? fmt2(rentabilidadeTotal) + '%' : '—';
-        var rentabCls = rentabilidadeTotal !== null ? (rentabilidadeTotal >= 0 ? 'up' : 'down') : '';
-        var cdiEstStr = cdiHoje ? fmt2(cdiHoje.cdiMesEst) + '% /mês' : '—';
-        var deltaPctKpi = (rentabilidadeTotal !== null && cdiHoje) ? (rentabilidadeTotal - cdiHoje.cdiMesEst) : null;
-        var deltaStrKpi = deltaPctKpi !== null ? (deltaPctKpi >= 0 ? '+' : '') + fmt2(deltaPctKpi) + '% vs CDI' : (cdiHoje ? 'CDI: ' + fmt2(cdiHoje.cdiMesEst) + '% est./mês' : '');
+        // Card: Resultado vs custo (hero) + CDI do mês na linha secundária + botão de info
+        var vsCustoPct = resultadoVsCusto !== null ? fmt2(resultadoVsCusto) + '%' : '—';
+        var vsCustoCls = resultadoVsCusto !== null ? (resultadoVsCusto >= 0 ? 'up' : 'down') : '';
+        var deltaAcum = null;
+        if (acumCart !== null && acumCdi !== null) { deltaAcum = acumCart - acumCdi; }
+        var cdiMesLabel = (cdiHoje && cdiHoje.cdiMesEst != null)
+            ? '<span class="trend neutral" style="font-size:11px;">CDI/mês est. ' + (cdiHoje.cdiMesEst >= 0 ? '+' : '') + fmt2(cdiHoje.cdiMesEst) + '%' + (cdiHoje.fallback ? ' ⚠' : '') + '</span>'
+            : '<span class="trend neutral" style="font-size:11px;color:var(--color-text-muted);">CDI indisponível</span>';
         var kpiPosicoesHTML =
             '<div class="kpi-card kpi-rentab-cdi">' +
-            '<span class="kpi-label">Rentabilidade</span>' +
-            '<span class="kpi-value kpi-rentab-val ' + rentabCls + '">' + rentabPct + '</span>' +
-            '<span class="kpi-cdi-line">' +
-            '<span class="kpi-cdi-badge">' + (cdiHoje && cdiHoje.fallback ? 'CDI ref.' : 'CDI est.') + '</span>' +
-            '<span class="kpi-cdi-val">' + (cdiHoje ? fmt2(cdiHoje.cdiMesEst) + '% /mês' : '—') + '</span>' +
-            '</span>' +
-            '<span class="trend ' + (deltaPctKpi !== null ? (deltaPctKpi >= 0 ? 'up' : 'down') : 'neutral') + '">' + deltaStrKpi + '</span>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+            '<span class="kpi-label">Resultado vs custo</span>' +
+            '<button type="button" class="info-button" data-drawer-open="drawer-info-resultado-custo" aria-label="Saiba mais sobre resultado vs custo">?</button>' +
+            '</div>' +
+            '<span class="kpi-value kpi-rentab-val ' + vsCustoCls + '">' + vsCustoPct + '</span>' +
+            '<span class="kpi-cdi-line"><span class="kpi-cdi-val" style="font-size:11px;color:var(--color-text-muted)">sobre o custo de aquisição' +
+            (provTotal > 0 ? ' · c/ proventos' : '') + '</span></span>' +
+            cdiMesLabel +
             '</div>';
+
+        // Conteúdo dinâmico para o drawer de explicação (valores reais do momento)
+        var drawerResultadoNumerosHTML = '';
+        if (resultadoVsCusto !== null) {
+            drawerResultadoNumerosHTML +=
+                '<div style="background:var(--color-neutral-bg);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:20px;">' +
+                '<p style="font-size:var(--text-xs);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--color-text-subtle);margin-bottom:10px;">Seus números agora</p>' +
+                '<div style="display:flex;flex-direction:column;gap:8px;">' +
+                '<div style="display:flex;justify-content:space-between;"><span style="font-size:var(--text-sm);color:var(--color-text-muted);">Resultado vs custo</span><span style="font-size:var(--text-sm);font-weight:600;color:' + (resultadoVsCusto >= 0 ? 'var(--color-success)' : 'var(--color-danger)') + ';">' + vsCustoPct + '</span></div>' +
+                (cdiHoje && cdiHoje.cdiMesEst != null ? '<div style="display:flex;justify-content:space-between;"><span style="font-size:var(--text-sm);color:var(--color-text-muted);">CDI estimado deste mês</span><span style="font-size:var(--text-sm);font-weight:600;">+' + fmt2(cdiHoje.cdiMesEst) + '%</span></div>' : '') +
+                (acumCart !== null ? '<div style="display:flex;justify-content:space-between;"><span style="font-size:var(--text-sm);color:var(--color-text-muted);">Carteira acumulada (histórico)</span><span style="font-size:var(--text-sm);font-weight:600;color:' + (acumCart >= 0 ? 'var(--color-success)' : 'var(--color-danger)') + ';">' + (acumCart >= 0 ? '+' : '') + fmt2(acumCart) + '%</span></div>' : '') +
+                (acumCdi !== null ? '<div style="display:flex;justify-content:space-between;"><span style="font-size:var(--text-sm);color:var(--color-text-muted);">CDI acumulado (mesmo período)</span><span style="font-size:var(--text-sm);font-weight:600;">+' + fmt2(acumCdi) + '%</span></div>' : '') +
+                (deltaAcum !== null ? '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--color-border);padding-top:8px;margin-top:4px;"><span style="font-size:var(--text-sm);color:var(--color-text-muted);">Diferença vs CDI</span><span style="font-size:var(--text-sm);font-weight:700;color:' + (deltaAcum >= 0 ? 'var(--color-success)' : 'var(--color-danger)') + ';">' + (deltaAcum >= 0 ? '+' : '') + fmt2(deltaAcum) + ' p.p.</span></div>' : '') +
+                '</div></div>';
+        }
 
         return '' +
             '<div class="app-shell">' + topbarHTML('/dashboard') +
@@ -5198,11 +5784,28 @@ function renderDashboard(user) {
             '<div class="kpi-card"><span class="kpi-label">Proventos</span>' + proventosBloco + '</div>' +
             kpiPosicoesHTML +
             '</div>' +
-            mapaRentabilidadeHTML(user.id) +
             '<div class="panel-grid">' + evolucaoHTML + alocacaoHTML + '</div>' +
+            secaoRentabilidadeHTML(user.id, mtdAgora) +
             renderRankingsHTML(rankings) +
             '</main>' + rodapeHTML() + '</div>' +
-            drawerTransacaoHTML(drawerState);
+            drawerTransacaoHTML(drawerState) +
+            '<div class="drawer-overlay"></div>' +
+            '<div id="drawer-info-resultado-custo" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-resultado-title">' +
+            '<div class="drawer-header"><h2 id="drawer-resultado-title">Resultado vs custo · CDI · Acumulado</h2>' +
+            '<button type="button" class="drawer-close" data-drawer-close aria-label="Fechar">&times;</button></div>' +
+            '<div class="drawer-body">' +
+            drawerResultadoNumerosHTML +
+            '<p style="margin-bottom:16px;"><strong>Resultado vs custo</strong> é quanto a sua carteira rendeu em relação ao total que você investiu. ' +
+            'O cálculo é: (saldo atual de mercado + proventos recebidos − custo de aquisição) ÷ custo de aquisição. ' +
+            'Um resultado de +5%, por exemplo, significa que sua carteira hoje vale 5% a mais do que você desembolsou para montá-la.</p>' +
+            '<p style="margin-bottom:16px;"><strong>CDI estimado do mês</strong> é quanto o CDI deve render neste mês, calculado a partir da taxa diária mais recente do Banco Central (série SGS 12). ' +
+            'O CDI é a principal referência da renda fixa no Brasil — é o que CDBs, LCIs e fundos DI tentam acompanhar. ' +
+            'Saber o CDI do mês ajuda a entender o "custo de oportunidade": o mínimo que você poderia ter ganho deixando o dinheiro em renda fixa.</p>' +
+            '<p style="margin-bottom:16px;"><strong>Carteira acumulada no tempo</strong> é o retorno acumulado mês a mês desde o primeiro mês completo registrado, calculado pelo método Modified Dietz — que considera o momento em que cada aporte entrou, em vez de tratar todo o dinheiro como se tivesse estado investido o mês inteiro.</p>' +
+            '<p><strong>Diferença em pontos percentuais (p.p.) vs CDI</strong> é a comparação direta entre o retorno acumulado da sua carteira e o CDI acumulado no mesmo período. ' +
+            'Se for positiva, sua carteira superou a renda fixa. Se for negativa, a renda fixa teria rendido mais. ' +
+            'Essa comparação é importante porque o risco de renda variável (ações, FIIs, cripto) só compensa se o retorno superar a renda fixa no longo prazo.</p>' +
+            '</div><div class="drawer-footer"><button type="button" class="button ghost" data-drawer-close>Fechar</button></div></div>';
     });
 }
 
@@ -5809,8 +6412,13 @@ function renderCurrentRoute() {
 
     if (!user && hash !== '/login' && hash !== '/register') { navegar('/login'); return; }
     if (user && (hash === '/login' || hash === '/register')) { navegar('/dashboard'); return; }
-    // [CDI v1] fecha o mês anterior se ainda não fechado — roda em background, sem bloquear a UI
-    if (user) { try { fecharMesAnteriorSeNecessario(user.id); } catch (e) {} }
+    // [RENT v2] fecha meses anteriores em background — não bloqueia o render.
+    // Quando termina, atualiza só o heatmap no DOM (sem re-renderizar a página).
+    if (user) {
+        fecharMesAnteriorSeNecessario(user.id)
+            .then(function (novos) { if (novos > 0) atualizarHeatmapDOM(user.id); })
+            .catch(function () {});
+    }
 
     var app = document.getElementById('app');
 
@@ -7835,19 +8443,26 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
         });
     }
 
-    // [CDI v1] histórico de rentabilidade mensal
-    // Registros com rentabilidade null (vindo de versões antigas do backup) são descartados
-    // para que fecharMesAnteriorSeNecessario os recalcule corretamente no próximo boot.
+    // [RENT v2] histórico de rentabilidade mensal.
+    // Ao importar backup, limpa o histórico deste usuário e reseta a flag de versão
+    // para que fecharMesAnteriorSeNecessario recalcule tudo com o método v2 (a mercado).
+    // Registros com rentabilidade null são descartados (backups de versões antigas).
     if (dados.historicoRentabilidade) {
         db.historicoRentabilidade = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId !== usuarioId; });
+        // Força recálculo com método v2 no próximo boot
+        db.historicoRentabilidadeVersao = 1; // intencional: versão < 2 dispara migração
         dados.historicoRentabilidade.forEach(function (h) {
-            if (h.rentabilidade === null || h.rentabilidade === undefined) return; // descarta inválidos
+            if (h.rentabilidade === null || h.rentabilidade === undefined) return;
             db.historicoRentabilidade.push({
                 mes: h.mes,
                 usuarioId: usuarioId,
                 rentabilidade: Number(h.rentabilidade),
                 cdi: h.cdi != null ? Number(h.cdi) : null,
                 primeiroMes: h.primeiroMes || undefined,
+                patrimonioInicio: h.patrimonioInicio != null ? Number(h.patrimonioInicio) : undefined,
+                patrimonioFim: h.patrimonioFim != null ? Number(h.patrimonioFim) : undefined,
+                aportesLiquidos: h.aportesLiquidos != null ? Number(h.aportesLiquidos) : undefined,
+                proventos: h.proventos != null ? Number(h.proventos) : undefined,
             });
         });
     }
