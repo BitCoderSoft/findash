@@ -6388,10 +6388,83 @@ function renderProventos(user) {
     provs.forEach(function (t) { qtdAtivos[t.ativoId] = true; });
     var numAtivos = Object.keys(qtdAtivos).length;
 
+    // Maior provento: objeto completo para exibir ativo e data
+    var maiorProventoTx = provs.reduce(function (m, t) {
+        return (Number(t.valor) || 0) > (m ? (Number(m.valor) || 0) : 0) ? t : m;
+    }, null);
+    var maiorProventoValor = maiorProventoTx ? (Number(maiorProventoTx.valor) || 0) : 0;
+    var maiorProventoAtivo = maiorProventoTx ? (db.ativos.filter(function(a){ return a.id === maiorProventoTx.ativoId; })[0] || null) : null;
+    var maiorProventoData = maiorProventoTx ? maiorProventoTx.data.split('-').reverse().join('/') : '';
+
+    // YoC global: total recebido / total investido (posições atuais)
+    var totalInvestidoProv = 0;
+    posicoesAtuais(user.id).forEach(function (p) {
+        if (ativoFiltradoId === 'todos' || p.ativo.id === ativoFiltradoId) totalInvestidoProv += p.valorInvestido;
+    });
+    var yocGeral = totalInvestidoProv > 0 ? (totalGeral / totalInvestidoProv * 100) : null;
+
+    // Últimos 12 meses (rolling)
+    var hoje = new Date();
+    var corte12m = new Date(hoje.getFullYear(), hoje.getMonth() - 11, 1);
+    var corte12mISO = corte12m.getFullYear() + '-' +
+        (corte12m.getMonth() + 1 < 10 ? '0' : '') + (corte12m.getMonth() + 1) + '-01';
+    var total12m = provs.reduce(function (s, t) {
+        return t.data >= corte12mISO ? s + (Number(t.valor) || 0) : s;
+    }, 0);
+
+    // Totais por ativo pagante (para gaveta)
+    var ativosPagantesMap = {};
+    provs.forEach(function (t) {
+        if (!ativosPagantesMap[t.ativoId]) {
+            var atv = db.ativos.filter(function(a){ return a.id === t.ativoId; })[0];
+            ativosPagantesMap[t.ativoId] = { ticker: atv ? atv.ticker : '?', total: 0, qtd: 0 };
+        }
+        ativosPagantesMap[t.ativoId].total += (Number(t.valor) || 0);
+        ativosPagantesMap[t.ativoId].qtd++;
+    });
+    var ativosPagantes = Object.keys(ativosPagantesMap).map(function(id) { return ativosPagantesMap[id]; });
+    ativosPagantes.sort(function(a, b) { return b.total - a.total; });
+
+    // Gaveta de ativos pagantes
+    var drawerPagantesHTML = '<div id="drawer-ativos-pagantes" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-pagantes-title">' +
+        '<div class="drawer-header"><h2 id="drawer-pagantes-title">Ativos pagadores</h2>' +
+        '<button type="button" class="drawer-close" data-drawer-close aria-label="Fechar">&times;</button></div>' +
+        '<div class="drawer-body">' +
+        (ativosPagantes.length
+            ? '<table class="table" style="width:100%"><thead><tr>' +
+              '<th>Ativo</th><th>Pagamentos</th><th style="text-align:right">Total recebido</th>' +
+              '</tr></thead><tbody>' +
+              ativosPagantes.map(function(ap) {
+                  return '<tr><td><strong>' + escapeHtml(ap.ticker) + '</strong></td>' +
+                      '<td>' + ap.qtd + '</td>' +
+                      '<td style="text-align:right;color:var(--color-success)">R$ ' + fmt2(ap.total) + '</td></tr>';
+              }).join('') +
+              '</tbody></table>'
+            : '<p style="color:var(--color-text-subtle)">Nenhum provento registrado.</p>') +
+        '</div>' +
+        '<div class="drawer-footer"><button type="button" class="button ghost" data-drawer-close>Fechar</button></div></div>';
+
     var resumoHTML = '<div class="summary-grid">' +
-        '<div class="summary-card"><span class="summary-card-title">Total recebido</span><p class="kpi-value" style="margin-top:10px;color:var(--color-success)">R$ ' + fmt2(totalGeral) + '</p></div>' +
-        '<div class="summary-card"><span class="summary-card-title">Pagamentos registrados</span><p class="kpi-value" style="margin-top:10px;">' + provs.length + '</p><p class="destaque-sub">' + numAtivos + ' ativo(s) pagador(es)</p></div>' +
-        '<div class="summary-card"><span class="summary-card-title">Maior provento individual</span><p class="kpi-value" style="margin-top:10px;">' + (totalGeral > 0 ? 'R$ ' + fmt2(provs.reduce(function(m,t){ return Math.max(m, Number(t.valor)||0); }, 0)) : '—') + '</p></div>' +
+        // Card 1: Total recebido + YoC + últimos 12 meses
+        '<div class="summary-card">' +
+        '<span class="summary-card-title">Total recebido</span>' +
+        '<p style="margin-top:10px;font-size:1.5rem;font-weight:700;color:var(--color-success)">R$ ' + fmt2(totalGeral) + '</p>' +
+        (yocGeral !== null ? '<p style="font-size:var(--text-xs);color:var(--color-text-subtle);margin-top:2px;">YoC acumulado <strong style="color:var(--color-success)">' + fmt2(yocGeral) + '%</strong></p>' : '') +
+        '<p style="font-size:var(--text-xs);color:var(--color-text-subtle);margin-top:8px;border-top:1px solid var(--color-border);padding-top:8px;">Últimos 12 meses <strong style="color:var(--color-text-base)">R$ ' + fmt2(total12m) + '</strong></p>' +
+        '</div>' +
+        // Card 2: Pagamentos + link para gaveta
+        '<div class="summary-card">' +
+        '<span class="summary-card-title">Pagamentos registrados</span>' +
+        '<p class="kpi-value" style="margin-top:10px;">' + provs.length + '</p>' +
+        '<p class="destaque-sub" style="margin-top:4px;">' + numAtivos + ' ativo(s) pagador(es) · ' +
+        '<button type="button" class="link-button" data-drawer-open="drawer-ativos-pagantes" style="font-size:inherit;color:var(--color-primary);text-decoration:underline;background:none;border:none;cursor:pointer;padding:0;">ver detalhe</button></p>' +
+        '</div>' +
+        // Card 3: Maior provento + ativo + data
+        '<div class="summary-card">' +
+        '<span class="summary-card-title">Maior provento individual</span>' +
+        '<p class="kpi-value" style="margin-top:10px;">' + (maiorProventoValor > 0 ? 'R$ ' + fmt2(maiorProventoValor) : '—') + '</p>' +
+        (maiorProventoAtivo ? '<p style="font-size:var(--text-xs);color:var(--color-text-subtle);margin-top:4px;"><strong>' + escapeHtml(maiorProventoAtivo.ticker) + '</strong> · ' + maiorProventoData + '</p>' : '') +
+        '</div>' +
         '</div>';
 
     // Gráfico filtrado pelo ativo selecionado
@@ -6454,6 +6527,7 @@ function renderProventos(user) {
         corpoHTML +
         '</main>' + rodapeHTML() + '</div>' +
         drawerTransacaoHTML(drawerState) +
+        drawerPagantesHTML +
         '<div class="drawer-overlay"></div>';
 }
 
