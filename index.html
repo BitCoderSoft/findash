@@ -5491,14 +5491,17 @@ function obterMTD(usuarioId, cotacoes, cdiHoje) {
     var mes = parseInt(anoMes.slice(5, 7), 10);
     var anoMesAnterior = mes === 1 ? (ano - 1) + '-12' : ano + '-' + (mes - 1 < 10 ? '0' : '') + (mes - 1);
 
-    // Início: prefere patrimonioFim do último mês fechado no histórico
-    var db = loadDB();
-    var histPrev = (db.historicoRentabilidade || []).filter(function (h) {
-        return h.usuarioId === usuarioId && h.mes === anoMesAnterior;
-    })[0];
-    var patrimonioInicio = histPrev && histPrev.patrimonioFim != null
-        ? Number(histPrev.patrimonioFim)
-        : patrimonioNaData(usuarioId, anoMesAnterior, {});
+    // Início: patrimônio no fim do mês anterior, calculado dinamicamente com stockHist
+    // (não usa patrimonioFim do histórico — pode estar desatualizado por transações retroativas)
+    var patrimonioInicio = patrimonioNaData(usuarioId, anoMesAnterior, loadStockHist());
+    if (patrimonioInicio <= 0) {
+        // Fallback: tenta o valor armazenado no histórico
+        var db = loadDB();
+        var histPrev = (db.historicoRentabilidade || []).filter(function (h) {
+            return h.usuarioId === usuarioId && h.mes === anoMesAnterior;
+        })[0];
+        patrimonioInicio = histPrev && histPrev.patrimonioFim != null ? Number(histPrev.patrimonioFim) : 0;
+    }
 
     if (patrimonioInicio <= 0) {
         _mtdCache = null;
@@ -5848,14 +5851,23 @@ function renderDashboard(user) {
             ? kpis.valorInvestido + kpis.lucroPrejuizo + rfRendimentos
             : kpis.valorInvestido + rfRendimentos;
 
-        // [HIST v1] mapa mês → valor de mercado para o gráfico de barras evolutivo
+        // [HIST v1] mapa mês → valor de mercado para o gráfico de barras evolutivo.
+        // Computado via patrimonioNaData + stockHist (não usa patrimonioFim histórico,
+        // que pode estar desatualizado caso o usuário adicione transações retroativas de RF).
+        var stockHistEvol = loadStockHist();
+        var mesHojeEvol = hojeISO().slice(0, 7);
+        var evolucaoRaw = evolucaoMensal(user.id);
         var saldoPorMes = {};
-        (db0.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === user.id && h.patrimonioFim != null; }).forEach(function (h) {
-            saldoPorMes[h.mes] = Number(h.patrimonioFim);
+        evolucaoRaw.forEach(function (e) {
+            if (e.anoMes >= mesHojeEvol) {
+                saldoPorMes[e.anoMes] = kpis.saldoAtual;
+            } else {
+                var pat = patrimonioNaData(user.id, e.anoMes, stockHistEvol);
+                if (pat > 0) saldoPorMes[e.anoMes] = pat;
+            }
         });
-        saldoPorMes[hojeISO().slice(0, 7)] = kpis.saldoAtual;
 
-        var evolucaoDados = dadosChartJsEvolucao(evolucaoMensal(user.id), {
+        var evolucaoDados = dadosChartJsEvolucao(evolucaoRaw, {
             saldoPorMes: saldoPorMes,
         });
         var alocacaoChart = montarGraficoAlocacao(alocacaoPorClasse(user.id));
