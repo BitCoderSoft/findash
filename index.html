@@ -3902,12 +3902,15 @@ function buscarHistoricoDoAtivo(ticker) {
 
 // [HIST v1] buscarPrecosMensaisB3 — usa startDate/endDate em chunks de 90 dias (plano free brapi).
 // dataInicio: 'YYYY-MM-DD' do primeiro lançamento do ticker (opcional; default = 1 ano atrás).
-// Acumula fechamentos mensais em STOCK_HIST_KEY; meses fechados nunca são sobrescritos.
+// Acumula fechamentos mensais em STOCK_HIST_KEY; meses fechados nunca são sobrescritos,
+// exceto o mês anterior (mesPrev) que pode ser atualizado para corrigir closes mid-month.
+// [FIX race] recarrega hist antes de salvar — evita race condition quando múltiplos tickers
+// são buscados em paralelo (Promise.all) e cada chamada capturava o hist vazio do início.
 function buscarPrecosMensaisB3(ticker, dataInicio) {
-    var hist  = loadStockHist();
-    var mapa  = hist[ticker] || {};
+    var mapaInicio = (loadStockHist()[ticker]) || {};
     var hoje  = hojeISO();
     var mesAtual = hoje.slice(0, 7);
+    var mesPrev  = _mesAnterior(mesAtual);
 
     if (!dataInicio) {
         var d1a = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
@@ -3915,23 +3918,25 @@ function buscarPrecosMensaisB3(ticker, dataInicio) {
     }
 
     var primMesNec   = dataInicio.slice(0, 7);
-    var mesesCobr    = Object.keys(mapa).sort();
+    var mesesCobr    = Object.keys(mapaInicio).sort();
     var priMesCobr   = mesesCobr[0] || null;
-    var coberto      = priMesCobr && priMesCobr <= primMesNec && mapa[mesAtual];
-    if (coberto) return Promise.resolve(mapa);
+    var coberto      = priMesCobr && priMesCobr <= primMesNec && mapaInicio[mesAtual] && mapaInicio[mesPrev];
+    if (coberto) return Promise.resolve(mapaInicio);
 
-    // Define fetchInicio: se histórico já cobre desde dataInicio, só atualiza mês atual
+    // Define fetchInicio: se histórico já cobre desde dataInicio, só atualiza últimos 90 dias
     var fetchInicio = dataInicio;
-    if (priMesCobr && priMesCobr <= primMesNec && !mapa[mesAtual]) {
+    if (priMesCobr && priMesCobr <= primMesNec && !mapaInicio[mesAtual]) {
         var d90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
         fetchInicio = d90.toISOString().slice(0, 10);
     }
     var chunks = gerarChunks(fetchInicio, hoje);
 
-    return _fetchChunksB3(encodeURIComponent(ticker), chunks, mapa, mesAtual).then(function () {
-        hist[ticker] = mapa;
-        saveStockHist(hist);
-        return mapa;
+    return _fetchChunksB3(encodeURIComponent(ticker), chunks, mapaInicio, mesAtual, mesPrev).then(function () {
+        // [FIX race] recarrega hist fresco para não sobrescrever tickers salvos por outras chamadas paralelas
+        var histAtual = loadStockHist();
+        histAtual[ticker] = mapaInicio;
+        saveStockHist(histAtual);
+        return mapaInicio;
     });
 }
 
@@ -4022,19 +4027,22 @@ function gerarChunks(dataInicio, dataFim) {
 // Agrega lista de candles diários (ordem DECRESCENTE — mais recente primeiro) em fechamentos mensais.
 // Para cada mês: primeiro candle encontrado = fechamento do último pregão daquele mês = close correto.
 // Meses fechados já no mapa nunca são sobrescritos; mês corrente sempre atualiza.
-function _agregarMensalDescendente(lista, mapa, mesAtual) {
+// mesPrev: mês anterior a mesAtual — também pode ser atualizado (captura o fechamento
+// real do mês que acabou de fechar, corrigindo valores gravados mid-month).
+function _agregarMensalDescendente(lista, mapa, mesAtual, mesPrev) {
     var vistos = {};
     lista.forEach(function (p) {
         var am = normalizarDataBrapi(p.date);
         if (!am || !p.close || vistos[am]) return;
         vistos[am] = true;
-        if (am === mesAtual || !mapa[am]) mapa[am] = p.close;
+        if (am === mesAtual || am === mesPrev || !mapa[am]) mapa[am] = p.close;
     });
 }
 
 // Busca chunks via brapiFetch (fila serial) e mescla em mapa.
 // sym: símbolo brapi (pode ser encodeURIComponent ou já encoded, ex: '%5EBVSP').
-function _fetchChunksB3(sym, chunks, mapa, mesAtual) {
+// mesPrev: permite sobrescrever o mês anterior (corrige closes mid-month gravados no mês corrente).
+function _fetchChunksB3(sym, chunks, mapa, mesAtual, mesPrev) {
     var cadeia = Promise.resolve();
     chunks.forEach(function (chunk) {
         cadeia = cadeia.then(function () {
@@ -4049,7 +4057,7 @@ function _fetchChunksB3(sym, chunks, mapa, mesAtual) {
                     if (!payload || payload.error) return;
                     var item = (payload.results || [])[0];
                     var lista = (item && item.data && item.data.historicalDataPrice) || [];
-                    _agregarMensalDescendente(lista, mapa, mesAtual);
+                    _agregarMensalDescendente(lista, mapa, mesAtual, mesPrev);
                 })
                 .catch(function () {});
         });
@@ -4059,10 +4067,12 @@ function _fetchChunksB3(sym, chunks, mapa, mesAtual) {
 
 // [HIST v1] buscarPrecosMensaisIBOV — mesma arquitetura de chunks que B3.
 // dataInicio: 'YYYY-MM-DD' do lançamento mais antigo de qualquer ativo de bolsa do usuário.
+// mesPrev incluído para corrigir closes mid-month gravados quando setembro era mesAtual.
 function buscarPrecosMensaisIBOV(dataInicio) {
     var hist     = loadIBOVHist();
     var hoje     = hojeISO();
     var mesAtual = hoje.slice(0, 7);
+    var mesPrev  = _mesAnterior(mesAtual);
 
     if (!dataInicio) {
         var d1a = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
@@ -4072,7 +4082,7 @@ function buscarPrecosMensaisIBOV(dataInicio) {
     var primMesNec = dataInicio.slice(0, 7);
     var mesesCobr  = Object.keys(hist).sort();
     var priMesCobr = mesesCobr[0] || null;
-    var coberto    = priMesCobr && priMesCobr <= primMesNec && hist[mesAtual];
+    var coberto    = priMesCobr && priMesCobr <= primMesNec && hist[mesAtual] && hist[mesPrev];
 
     if (coberto) {
         _ibovMapaCache = hist;
@@ -4086,7 +4096,7 @@ function buscarPrecosMensaisIBOV(dataInicio) {
     }
     var chunks = gerarChunks(fetchInicio, hoje);
 
-    return _fetchChunksB3('%5EBVSP', chunks, hist, mesAtual).then(function () {
+    return _fetchChunksB3('%5EBVSP', chunks, hist, mesAtual, mesPrev).then(function () {
         if (Object.keys(hist).length) saveIBOVHist(hist);
         _ibovMapaCache = hist;
         return hist;
