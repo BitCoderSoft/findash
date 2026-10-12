@@ -1328,8 +1328,8 @@ a.nav-item:hover { color: var(--color-text); }
 /* Drawer (slide-over) */
 .drawer-overlay { position: fixed; inset: 0; background: rgba(15, 16, 26, 0.4); opacity: 0; visibility: hidden; transition: opacity 200ms ease; z-index: 100; }
 .drawer-overlay.open { opacity: 1; visibility: visible; }
-.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(520px, 92vw); background: var(--color-surface); box-shadow: -24px 0 48px rgba(15, 16, 26, 0.10); border-left: 1px solid var(--color-border); transform: translateX(100%); transition: transform 220ms ease; z-index: 101; display: flex; flex-direction: column; }
-.drawer.open { transform: translateX(0); }
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(520px, 92vw); background: var(--color-surface); border-left: 1px solid var(--color-border); transform: translateX(100%); transition: transform 220ms ease; z-index: 101; display: flex; flex-direction: column; }
+.drawer.open { transform: translateX(0); box-shadow: -24px 0 48px rgba(15, 16, 26, 0.10); }
 .drawer-form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 @media (prefers-reduced-motion: reduce) { .drawer, .drawer-overlay { transition: none; } }
 .drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--color-border); }
@@ -1345,6 +1345,11 @@ a.nav-item:hover { color: var(--color-text); }
 .table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); white-space: nowrap; }
 .table th, .table td { text-align: left; padding: 12px 16px; }
 .table thead th { font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-subtle); border-bottom: 1px solid var(--color-border); background: var(--color-neutral-bg); }
+.th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+.th-sort:hover { color: var(--color-text-base); }
+.th-sort-ativo { color: var(--color-primary); }
+.sort-icon { font-size: 10px; margin-left: 4px; opacity: 0.45; vertical-align: middle; }
+.sort-icon.ativo { opacity: 1; }
 .table tbody tr { border-bottom: 1px solid var(--color-border); transition: background-color 80ms; }
 .table tbody tr:last-child { border-bottom: none; }
 .table tbody tr:hover { background: var(--color-neutral-bg); }
@@ -4525,6 +4530,9 @@ var drawerState = null; // null = fechado/vazio; ou {open, editId, values, error
 // [BACKUP v1] estado da tela de backup: { textoExport, previa }. Zera ao
 // sair da página (ver navegar()).
 var backupState = null;
+// [PROV v3] filtro de ativo na página de proventos. 'todos' = sem filtro.
+var _filtroProvento = 'todos';
+var _ordemPosicoes = { col: null, dir: 'asc' }; // col: 'quantidade'|'rentabilidade'|'saldo'|null
 
 /* =================================================================
    COMPONENTES DE TEMPLATE (HTML como string, mesma marcação dos templates
@@ -5491,14 +5499,17 @@ function obterMTD(usuarioId, cotacoes, cdiHoje) {
     var mes = parseInt(anoMes.slice(5, 7), 10);
     var anoMesAnterior = mes === 1 ? (ano - 1) + '-12' : ano + '-' + (mes - 1 < 10 ? '0' : '') + (mes - 1);
 
-    // Início: prefere patrimonioFim do último mês fechado no histórico
-    var db = loadDB();
-    var histPrev = (db.historicoRentabilidade || []).filter(function (h) {
-        return h.usuarioId === usuarioId && h.mes === anoMesAnterior;
-    })[0];
-    var patrimonioInicio = histPrev && histPrev.patrimonioFim != null
-        ? Number(histPrev.patrimonioFim)
-        : patrimonioNaData(usuarioId, anoMesAnterior, {});
+    // Início: patrimônio no fim do mês anterior, calculado dinamicamente com stockHist
+    // (não usa patrimonioFim do histórico — pode estar desatualizado por transações retroativas)
+    var patrimonioInicio = patrimonioNaData(usuarioId, anoMesAnterior, loadStockHist());
+    if (patrimonioInicio <= 0) {
+        // Fallback: tenta o valor armazenado no histórico
+        var db = loadDB();
+        var histPrev = (db.historicoRentabilidade || []).filter(function (h) {
+            return h.usuarioId === usuarioId && h.mes === anoMesAnterior;
+        })[0];
+        patrimonioInicio = histPrev && histPrev.patrimonioFim != null ? Number(histPrev.patrimonioFim) : 0;
+    }
 
     if (patrimonioInicio <= 0) {
         _mtdCache = null;
@@ -5848,14 +5859,23 @@ function renderDashboard(user) {
             ? kpis.valorInvestido + kpis.lucroPrejuizo + rfRendimentos
             : kpis.valorInvestido + rfRendimentos;
 
-        // [HIST v1] mapa mês → valor de mercado para o gráfico de barras evolutivo
+        // [HIST v1] mapa mês → valor de mercado para o gráfico de barras evolutivo.
+        // Computado via patrimonioNaData + stockHist (não usa patrimonioFim histórico,
+        // que pode estar desatualizado caso o usuário adicione transações retroativas de RF).
+        var stockHistEvol = loadStockHist();
+        var mesHojeEvol = hojeISO().slice(0, 7);
+        var evolucaoRaw = evolucaoMensal(user.id);
         var saldoPorMes = {};
-        (db0.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === user.id && h.patrimonioFim != null; }).forEach(function (h) {
-            saldoPorMes[h.mes] = Number(h.patrimonioFim);
+        evolucaoRaw.forEach(function (e) {
+            if (e.anoMes >= mesHojeEvol) {
+                saldoPorMes[e.anoMes] = kpis.saldoAtual;
+            } else {
+                var pat = patrimonioNaData(user.id, e.anoMes, stockHistEvol);
+                if (pat > 0) saldoPorMes[e.anoMes] = pat;
+            }
         });
-        saldoPorMes[hojeISO().slice(0, 7)] = kpis.saldoAtual;
 
-        var evolucaoDados = dadosChartJsEvolucao(evolucaoMensal(user.id), {
+        var evolucaoDados = dadosChartJsEvolucao(evolucaoRaw, {
             saldoPorMes: saldoPorMes,
         });
         var alocacaoChart = montarGraficoAlocacao(alocacaoPorClasse(user.id));
@@ -5915,7 +5935,7 @@ function renderDashboard(user) {
         var yocGeral = custoGerador > 0 ? (provTotal / custoGerador) * 100 : null;
         var proventosBloco = provTotal > 0
             ? '<span class="kpi-value up">R$ ' + fmt2(provTotal) + '</span>' +
-              '<span class="trend up">' + (yocGeral !== null ? 'YoC ' + fmt2(yocGeral) + '% s/ custo' : 'dividendos recebidos') + '</span>'
+              '<span class="trend up">' + (yocGeral !== null ? 'YoC ' + fmt2(yocGeral) + '%' : 'dividendos recebidos') + '</span>'
             : '<span class="kpi-value">R$ 0,00</span><span class="trend neutral">nenhum provento ainda</span>';
 
         // [UI v5] Resultado vs custo (estilo Smartfolio): inclui proventos de bolsa no numerador.
@@ -5924,11 +5944,21 @@ function renderDashboard(user) {
             ? ((lucroTotal + provTotal) / kpis.valorInvestido) * 100
             : null;
         var lucroClasse = temLucroTotal ? (lucroTotal >= 0 ? 'up' : 'down') : '';
+        var lucroComDiv = lucroTotal + provTotal;
+        var lucroPctMercado = kpis.valorInvestido > 0 ? (lucroTotal / kpis.valorInvestido * 100) : null;
+        var clsL = lucroTotal >= 0 ? 'up' : 'down';
+        var subLabel = 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--color-text-subtle);margin-bottom:1px;';
         var lucroBloco = temLucroTotal
-            ? '<span class="kpi-value ' + (lucroTotal >= 0 ? 'up' : 'down') + '">R$ ' + fmt2(lucroTotal) + '</span>' +
-              (resultadoVsCusto !== null
-                  ? '<span class="trend ' + (lucroTotal >= 0 ? 'up' : 'down') + '">' + (lucroTotal >= 0 ? '▲' : '▼') + ' ' + fmt2(Math.abs(resultadoVsCusto)) + '% · ' + (lucroTotal >= 0 ? 'acima do custo' : 'abaixo do custo') + '</span>'
-                  : '<span class="trend ' + (lucroTotal >= 0 ? 'up' : 'down') + '">' + (lucroTotal >= 0 ? 'acima do custo' : 'abaixo do custo') + '</span>')
+            ? '<p style="' + subLabel + 'margin-top:6px;">Lucro total</p>' +
+              '<div style="display:flex;align-items:baseline;gap:5px;margin-bottom:1px;">' +
+                '<span class="kpi-value ' + (lucroComDiv >= 0 ? 'up' : 'down') + '" style="font-size:1.2rem;">R$ ' + fmt2(lucroComDiv) + '</span>' +
+              '</div>' +
+              (provTotal > 0 ? '<span style="font-size:10px;color:var(--color-text-muted);display:block;margin-bottom:8px;">incluindo dividendos</span>' : '<span style="display:block;margin-bottom:8px;"></span>') +
+              '<p style="' + subLabel + '">Lucro/Prejuízo</p>' +
+              '<div style="display:flex;align-items:baseline;gap:5px;">' +
+                '<span class="kpi-value ' + clsL + '" style="font-size:1.2rem;">R$ ' + fmt2(lucroTotal) + '</span>' +
+                (lucroPctMercado !== null ? '<span class="trend ' + clsL + '">(' + (lucroTotal >= 0 ? '+' : '') + fmt2(lucroPctMercado) + '%)</span>' : '') +
+              '</div>'
             : '<span class="kpi-value">—</span><span class="trend neutral">requer cotação de mercado</span>';
 
         // MTD + acumulado temporal (mesma base do gráfico de linhas)
@@ -6140,10 +6170,35 @@ function renderPosicoes(user) {
                 '</tr></thead><tbody>' + rfLinhas + '</tbody></table></div></div></div></div>';
         }
 
+        function iconeSort(col) {
+            if (_ordemPosicoes.col !== col) return '<span class="sort-icon">↕</span>';
+            return '<span class="sort-icon ativo">' + (_ordemPosicoes.dir === 'asc' ? '↑' : '↓') + '</span>';
+        }
+        function thSort(label, col) {
+            var cls = _ordemPosicoes.col === col ? ' th-sort-ativo' : '';
+            return '<th class="th-sort' + cls + '" data-posicoes-sort="' + col + '">' + label + iconeSort(col) + '</th>';
+        }
+
         var gruposHTML;
         if (grupos.length || rfPosicoes.length) {
             var gruposHtmlPartes = grupos.map(function (grupo) {
-                var linhas = grupo.posicoes.map(function (p) {
+                var posicoesOrdenadas = grupo.posicoes.slice();
+                if (_ordemPosicoes.col) {
+                    posicoesOrdenadas.sort(function (a, b) {
+                        var va, vb;
+                        if (_ordemPosicoes.col === 'quantidade') {
+                            va = a.quantidade; vb = b.quantidade;
+                        } else if (_ordemPosicoes.col === 'rentabilidade') {
+                            va = a.rentabilidadePercentual !== null ? a.rentabilidadePercentual : -Infinity;
+                            vb = b.rentabilidadePercentual !== null ? b.rentabilidadePercentual : -Infinity;
+                        } else if (_ordemPosicoes.col === 'saldo') {
+                            va = temValorAtual(a) ? a.valorAtual : a.valorInvestido;
+                            vb = temValorAtual(b) ? b.valorAtual : b.valorInvestido;
+                        }
+                        return _ordemPosicoes.dir === 'asc' ? va - vb : vb - va;
+                    });
+                }
+                var linhas = posicoesOrdenadas.map(function (p) {
                     var logo;
                     if (p.cotacao && p.cotacao.logoUrl) {
                         var fallback = escapeHtml(p.ativo.ticker.slice(0, 2));
@@ -6200,7 +6255,7 @@ function renderPosicoes(user) {
                     '<span class="classe-group-seta" aria-hidden="true"></span></div>' +
                     '<div class="classe-group-corpo"><div class="classe-group-corpo-interno">' +
                     '<div class="classe-group-table-scroll"><table class="table table-cards"><thead><tr>' +
-                    '<th>Ativo</th><th>Quantidade</th><th>Preço médio</th><th>Preço atual</th><th>Rentabilidade</th><th>Total investido</th><th>Saldo atual</th>' +
+                    '<th>Ativo</th>' + thSort('Quantidade', 'quantidade') + '<th>Preço médio</th><th>Preço atual</th>' + thSort('Rentabilidade', 'rentabilidade') + '<th>Total investido</th>' + thSort('Saldo atual', 'saldo') +
                     (grupo.classe === 'CRIPTO' ? '' : '<th>Proventos</th>') + '<th>% da carteira</th>' +
                     '</tr></thead><tbody>' + linhas + '</tbody></table></div></div></div></div>';
             }).join('');
@@ -6254,9 +6309,13 @@ function renderPosicoes(user) {
 }
 
 // [PROV v2] evolução mensal de proventos: cada mês = soma dos proventos pagos nele
-function evolucaoMensalProventos(usuarioId) {
+// [PROV v3] ativoId opcional — filtra por ativo específico
+function evolucaoMensalProventos(usuarioId, ativoId) {
     var db = loadDB();
-    var provs = db.transacoes.filter(function (t) { return t.usuarioId === usuarioId && t.tipo === 'PROVENTO'; });
+    var provs = db.transacoes.filter(function (t) {
+        return t.usuarioId === usuarioId && t.tipo === 'PROVENTO' &&
+            (!ativoId || ativoId === 'todos' || t.ativoId === ativoId);
+    });
     if (!provs.length) return [];
 
     var deltasPorMes = {};
@@ -6289,30 +6348,129 @@ function evolucaoMensalProventos(usuarioId) {
     return resultado;
 }
 
-// [PROV v2] página dedicada de proventos
+// [PROV v3] página dedicada de proventos com filtro por ativo
 function renderProventos(user) {
     var db = loadDB();
-    var provs = db.transacoes
+    var todosProvs = db.transacoes
         .filter(function (t) { return t.usuarioId === user.id && t.tipo === 'PROVENTO'; })
         .slice()
         .sort(function (a, b) { return a.data < b.data ? 1 : a.data > b.data ? -1 : 0; });
 
-    var totalGeral = provs.reduce(function (s, t) { return s + (Number(t.valor) || 0); }, 0);
+    // Ativos únicos com proventos (para o seletor)
+    var ativosComProv = {};
+    todosProvs.forEach(function (t) {
+        if (!ativosComProv[t.ativoId]) {
+            var at = db.ativos.filter(function (a) { return a.id === t.ativoId; })[0];
+            if (at) ativosComProv[t.ativoId] = at.ticker;
+        }
+    });
+    var ativosFiltro = Object.keys(ativosComProv).sort(function (a, b) {
+        return ativosComProv[a] < ativosComProv[b] ? -1 : 1;
+    });
 
-    // KPIs resumo
+    // Seletor de filtro
+    var ativoFiltradoId = (_filtroProvento && _filtroProvento !== 'todos') ? Number(_filtroProvento) : 'todos';
+    var opcoesSelect = '<option value="todos"' + (_filtroProvento === 'todos' ? ' selected' : '') + '>Todos os ativos</option>' +
+        ativosFiltro.map(function (id) {
+            return '<option value="' + id + '"' + (_filtroProvento == id ? ' selected' : '') + '>' + escapeHtml(ativosComProv[id]) + '</option>';
+        }).join('');
+    var filtroBarHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">' +
+        '<label for="select-filtro-provento" style="font-size:var(--text-sm);color:var(--color-muted);white-space:nowrap;">Filtrar por ativo:</label>' +
+        '<select id="select-filtro-provento" class="input" style="max-width:200px;padding:6px 10px;height:auto;">' +
+        opcoesSelect + '</select></div>';
+
+    // Proventos filtrados (para tabela e KPIs)
+    var provs = todosProvs.filter(function (t) {
+        return _filtroProvento === 'todos' || String(t.ativoId) === String(_filtroProvento);
+    });
+
+    var totalGeral = provs.reduce(function (s, t) { return s + (Number(t.valor) || 0); }, 0);
     var qtdAtivos = {};
     provs.forEach(function (t) { qtdAtivos[t.ativoId] = true; });
     var numAtivos = Object.keys(qtdAtivos).length;
-    var maiorProvento = provs.reduce(function (m, t) { return (Number(t.valor) || 0) > m ? (Number(t.valor) || 0) : m; }, 0);
+
+    // Maior provento: objeto completo para exibir ativo e data
+    var maiorProventoTx = provs.reduce(function (m, t) {
+        return (Number(t.valor) || 0) > (m ? (Number(m.valor) || 0) : 0) ? t : m;
+    }, null);
+    var maiorProventoValor = maiorProventoTx ? (Number(maiorProventoTx.valor) || 0) : 0;
+    var maiorProventoAtivo = maiorProventoTx ? (db.ativos.filter(function(a){ return a.id === maiorProventoTx.ativoId; })[0] || null) : null;
+    var maiorProventoData = maiorProventoTx ? maiorProventoTx.data.split('-').reverse().join('/') : '';
+
+    // YoC global: total recebido / total investido (posições atuais)
+    var totalInvestidoProv = 0;
+    posicoesAtuais(user.id).forEach(function (p) {
+        if (ativoFiltradoId === 'todos' || p.ativo.id === ativoFiltradoId) totalInvestidoProv += p.valorInvestido;
+    });
+    var yocGeral = totalInvestidoProv > 0 ? (totalGeral / totalInvestidoProv * 100) : null;
+
+    // Últimos 12 meses (rolling)
+    var hoje = new Date();
+    var corte12m = new Date(hoje.getFullYear(), hoje.getMonth() - 11, 1);
+    var corte12mISO = corte12m.getFullYear() + '-' +
+        (corte12m.getMonth() + 1 < 10 ? '0' : '') + (corte12m.getMonth() + 1) + '-01';
+    var total12m = provs.reduce(function (s, t) {
+        return t.data >= corte12mISO ? s + (Number(t.valor) || 0) : s;
+    }, 0);
+
+    // Totais por ativo pagante (para gaveta)
+    var ativosPagantesMap = {};
+    provs.forEach(function (t) {
+        if (!ativosPagantesMap[t.ativoId]) {
+            var atv = db.ativos.filter(function(a){ return a.id === t.ativoId; })[0];
+            ativosPagantesMap[t.ativoId] = { ticker: atv ? atv.ticker : '?', total: 0, qtd: 0 };
+        }
+        ativosPagantesMap[t.ativoId].total += (Number(t.valor) || 0);
+        ativosPagantesMap[t.ativoId].qtd++;
+    });
+    var ativosPagantes = Object.keys(ativosPagantesMap).map(function(id) { return ativosPagantesMap[id]; });
+    ativosPagantes.sort(function(a, b) { return b.total - a.total; });
+
+    // Gaveta de ativos pagantes
+    var drawerPagantesHTML = '<div id="drawer-ativos-pagantes" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-pagantes-title">' +
+        '<div class="drawer-header"><h2 id="drawer-pagantes-title">Ativos pagadores</h2>' +
+        '<button type="button" class="drawer-close" data-drawer-close aria-label="Fechar">&times;</button></div>' +
+        '<div class="drawer-body">' +
+        (ativosPagantes.length
+            ? '<table class="table" style="width:100%"><thead><tr>' +
+              '<th>Ativo</th><th>Pagamentos</th><th style="text-align:right">Total recebido</th>' +
+              '</tr></thead><tbody>' +
+              ativosPagantes.map(function(ap) {
+                  return '<tr><td><strong>' + escapeHtml(ap.ticker) + '</strong></td>' +
+                      '<td>' + ap.qtd + '</td>' +
+                      '<td style="text-align:right;color:var(--color-success)">R$ ' + fmt2(ap.total) + '</td></tr>';
+              }).join('') +
+              '</tbody></table>'
+            : '<p style="color:var(--color-text-subtle)">Nenhum provento registrado.</p>') +
+        '</div>' +
+        '<div class="drawer-footer"><button type="button" class="button ghost" data-drawer-close>Fechar</button></div></div>';
 
     var resumoHTML = '<div class="summary-grid">' +
-        '<div class="summary-card"><span class="summary-card-title">Total recebido</span><p class="kpi-value" style="margin-top:10px;color:var(--color-success)">R$ ' + fmt2(totalGeral) + '</p></div>' +
-        '<div class="summary-card"><span class="summary-card-title">Pagamentos registrados</span><p class="kpi-value" style="margin-top:10px;">' + provs.length + '</p><p class="destaque-sub">' + numAtivos + ' ativo(s) pagador(es)</p></div>' +
-        '<div class="summary-card"><span class="summary-card-title">Maior provento individual</span><p class="kpi-value" style="margin-top:10px;">' + (maiorProvento > 0 ? 'R$ ' + fmt2(maiorProvento) : '—') + '</p></div>' +
+        // Card 1: Total recebido + YoC + últimos 12 meses
+        '<div class="summary-card">' +
+        '<span class="summary-card-title">Total recebido</span>' +
+        '<p style="margin-top:10px;font-size:1.5rem;font-weight:700;color:var(--color-success)">R$ ' + fmt2(totalGeral) + '</p>' +
+        (yocGeral !== null ? '<p style="font-size:var(--text-xs);color:var(--color-text-subtle);margin-top:2px;">YoC acumulado <strong style="color:var(--color-success)">' + fmt2(yocGeral) + '%</strong></p>' : '') +
+        '<p style="font-size:var(--text-xs);color:var(--color-text-subtle);margin-top:8px;border-top:1px solid var(--color-border);padding-top:8px;">Últimos 12 meses <strong style="color:var(--color-text-base)">R$ ' + fmt2(total12m) + '</strong></p>' +
+        '</div>' +
+        // Card 2: Pagamentos + link para gaveta
+        '<div class="summary-card">' +
+        '<span class="summary-card-title">Pagamentos registrados</span>' +
+        '<p class="kpi-value" style="margin-top:10px;">' + provs.length + '</p>' +
+        '<p class="destaque-sub" style="margin-top:4px;">' + numAtivos + ' ativo(s) pagador(es) · ' +
+        '<button type="button" class="link-button" data-drawer-open="drawer-ativos-pagantes" style="font-size:inherit;color:var(--color-primary);text-decoration:underline;background:none;border:none;cursor:pointer;padding:0;">ver detalhe</button></p>' +
+        '</div>' +
+        // Card 3: Maior provento + ativo + data
+        '<div class="summary-card">' +
+        '<span class="summary-card-title">Maior provento individual</span>' +
+        '<p class="kpi-value" style="margin-top:10px;">' + (maiorProventoValor > 0 ? 'R$ ' + fmt2(maiorProventoValor) : '—') + '</p>' +
+        (maiorProventoAtivo ? '<p style="font-size:var(--text-xs);color:var(--color-text-subtle);margin-top:4px;"><strong>' + escapeHtml(maiorProventoAtivo.ticker) + '</strong> · ' + maiorProventoData + '</p>' : '') +
+        '</div>' +
         '</div>';
 
-    // Gráfico de evolução mensal de proventos
-    var evolucaoProv = evolucaoMensalProventos(user.id);
+    // Gráfico filtrado pelo ativo selecionado
+    var ativoIdParaGrafico = _filtroProvento !== 'todos' ? Number(_filtroProvento) : null;
+    var evolucaoProv = evolucaoMensalProventos(user.id, ativoIdParaGrafico);
     var dadosProv = dadosChartJsProventos(evolucaoProv);
     var graficoHTML = '';
     if (dadosProv) {
@@ -6324,31 +6482,40 @@ function renderProventos(user) {
             '</div>';
     }
 
+    // Posições e investido por ativo (uma só chamada)
+    var posicoesMap = {};
+    posicoesAtuais(user.id).forEach(function (p) { posicoesMap[p.ativo.id] = p; });
+
     // Tabela de proventos
     var corpoHTML;
     if (provs.length) {
         var linhas = provs.map(function (t) {
             var ativo = db.ativos.filter(function (a) { return a.id === t.ativoId; })[0];
             var dataFmt = t.data.split('-').reverse().join('/');
-            var pos = posicoesAtuais(user.id).filter(function (p) { return p.ativo.id === t.ativoId; })[0];
-            var pv = proventosPorAtivo(user.id)[t.ativoId];
+            var pos = posicoesMap[t.ativoId];
             var investido = pos ? pos.valorInvestido : 0;
-            var yocStr = (investido > 0 && pv) ? fmt2(pv.total / investido * 100) + '%' : '—';
+            // [PROV v3] YoC individual: este lançamento / custo atual do ativo
+            var yocStr = (investido > 0) ? fmt2(Number(t.valor) / investido * 100) + '%' : '—';
             return '<tr>' +
                 '<td data-label="Data">' + dataFmt + '</td>' +
                 '<td class="td-titulo"><a role="link" tabindex="0" data-rota="/ativo/' + encodeURIComponent(ativo.ticker) + '" class="ativo-link">' + escapeHtml(ativo.ticker) + '</a></td>' +
                 '<td data-label="Subtipo"><span class="trend provento">' + (SUBTIPOS_PROVENTO[t.subtipo] || t.subtipo || '—') + '</span></td>' +
                 '<td data-label="Valor"><span class="valor-provento">+ R$ ' + fmt2(t.valor) + '</span></td>' +
-                '<td data-label="YoC acumulado"><span class="yoc" style="font-size:var(--text-sm)">' + yocStr + '</span></td>' +
+                '<td data-label="YoC do provento"><span class="yoc" style="font-size:var(--text-sm)">' + yocStr + '</span></td>' +
                 '<td class="table-actions td-acoes">' +
                 '<button type="button" class="button ghost small" data-editar-id="' + t.id + '">Editar</button>' +
                 '<button type="button" class="button ghost small" data-excluir-id="' + t.id + '">Excluir</button>' +
                 '</td></tr>';
         }).join('');
 
-        corpoHTML = '<div class="table-wrap"><table class="table table-cards"><thead><tr>' +
-            '<th>Data</th><th>Ativo</th><th>Tipo</th><th>Valor recebido</th><th>YoC acumulado</th><th>Ações</th>' +
+        corpoHTML = filtroBarHTML +
+            '<div class="table-wrap"><table class="table table-cards"><thead><tr>' +
+            '<th>Data</th><th>Ativo</th><th>Tipo</th><th>Valor recebido</th><th>YoC do provento</th><th>Ações</th>' +
             '</tr></thead><tbody>' + linhas + '</tbody></table></div>';
+    } else if (todosProvs.length) {
+        // Há proventos mas nenhum para o filtro ativo — mostra seletor + mensagem
+        corpoHTML = filtroBarHTML +
+            '<div class="empty-panel"><p class="empty-title">Nenhum provento para este ativo</p></div>';
     } else {
         corpoHTML = '<div class="empty-panel">' + emptyIllustrationBars() +
             '<p class="empty-title">Nenhum provento registrado ainda</p>' +
@@ -6357,11 +6524,11 @@ function renderProventos(user) {
 
     return '<div class="app-shell">' + topbarHTML('/proventos') +
         '<main class="page-content">' +
-        '' +
-        (provs.length ? resumoHTML + graficoHTML : '') +
+        (todosProvs.length ? resumoHTML + graficoHTML : '') +
         corpoHTML +
         '</main>' + rodapeHTML() + '</div>' +
         drawerTransacaoHTML(drawerState) +
+        drawerPagantesHTML +
         '<div class="drawer-overlay"></div>';
 }
 
@@ -6597,6 +6764,8 @@ function navegar(rota) {
     drawerState = null;
     if (rota !== '/backup') backupState = null; // [BACKUP v1]
     if (rota !== '/balanceamento') balanceamentoState = null; // [BAL v1]
+    if (rota !== '/proventos') _filtroProvento = 'todos'; // [PROV v3]
+    if (rota !== '/posicoes') _ordemPosicoes = { col: null, dir: 'asc' };
     objetivoState = null; // [OBJ v1]
     try {
         if (location.hash !== '#' + rota) history.pushState(null, '', '#' + rota);
@@ -6919,6 +7088,36 @@ document.addEventListener('change', function (event) {
     else if (alvo.id === 'f_ticker') aplicarAutopreenchimento(alvo.form);
     else if (alvo.id === 'f_ticker_destino') atualizarInfoDestino(alvo.form);
     else if (alvo.id === 'f_subtipo') delete alvo.dataset.auto; // [PROV v1]
+});
+
+// Ordenação de colunas na página de posições
+document.addEventListener('click', function (event) {
+    var th = event.target.closest('[data-posicoes-sort]');
+    if (!th) return;
+    var col = th.dataset.posicoesSort;
+    if (_ordemPosicoes.col === col) {
+        _ordemPosicoes.dir = _ordemPosicoes.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        _ordemPosicoes.col = col;
+        _ordemPosicoes.dir = 'desc'; // primeira ativação: maior primeiro
+    }
+    var user = currentUser();
+    if (!user) return;
+    renderPosicoes(user).then(function (html) {
+        document.getElementById('app').innerHTML = html;
+        inicializarCharts();
+    });
+});
+
+// [PROV v3] filtro de ativo na página de proventos
+document.addEventListener('change', function (event) {
+    if (event.target.id !== 'select-filtro-provento') return;
+    _filtroProvento = event.target.value;
+    var user = currentUser();
+    if (!user) return;
+    var app = document.getElementById('app');
+    app.innerHTML = renderProventos(user);
+    inicializarCharts();
 });
 
 document.addEventListener('input', function (event) {

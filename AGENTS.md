@@ -262,6 +262,13 @@ atual usando cotações ao vivo (as mesmas já buscadas no dashboard). Resultado
 marcado como `parcial: true` — aparece no heatmap com asterisco. Não é gravado
 no `historicoRentabilidade`; existe só em `_mtdCache` (memória de sessão).
 
+**`patrimonioInicio` no MTD**: calculado via `patrimonioNaData(usuarioId, anoMesAnterior, loadStockHist())`
+— **não** usa `histPrev.patrimonioFim` do histórico fechado. Motivo: o snapshot
+armazenado reflete o estado da carteira no momento do fechamento; transações
+retroativas adicionadas depois (como um aporte de RF em mês já fechado) não
+atualizam esse snapshot. O cálculo dinâmico inclui sempre o estado atual das
+transações. Fallback para o valor histórico apenas se `patrimonioNaData` retornar 0.
+
 ### Fluxo de fechamento
 
 `fecharMesAnteriorSeNecessario(usuarioId)` roda em background no boot, retorna
@@ -330,6 +337,14 @@ O quarto KPI do Resumo exibe:
 - Botão `?` que abre `#drawer-info-resultado-custo`: gaveta com os valores reais
   do momento (resultado %, CDI/mês, acumulado carteira vs CDI, delta p.p.) e 4
   parágrafos explicativos em linguagem leiga.
+
+### Card "Lucro/Prejuízo" no KPI de Resumo
+
+O terceiro KPI do Resumo foi redesenhado com dois sub-blocos:
+- **Lucro total** (topo): `lucroTotal + provTotal` — valorização + dividendos recebidos. Se
+  há proventos, exibe "incluindo dividendos" abaixo.
+- **Lucro/Prejuízo** (base): `lucroTotal` (só valorização) com percentual `lucroTotal / valorInvestido`.
+- Ambos em `font-size: 1.2rem` (menor que o `kpi-value` padrão) para compactar o card.
 
 ## Armazenamento (`armazem`)
 
@@ -440,6 +455,19 @@ Princípios — manter consistência em telas novas:
       acumulado no estilo Investidor10 (origin = primeiro mês real, sem ponto
       sintético pré-carteira); gráfico de barras evolutivo a valor de mercado
       mês a mês com split custo/ganho por barra.
+22. ✅ Gráfico de barras com dados dinâmicos via `patrimonioNaData + stockHist`
+      (corrige exibição quando RF ou outros ativos são lançados retroativamente após
+      meses já fechados). MTD também usa `patrimonioNaData` para `patrimonioInicio`
+      pelo mesmo motivo. Sombra da gaveta corrigida (só aparece com `.drawer.open`).
+23. ✅ Dashboard — KPI "Lucro/Prejuízo" redesenhado: dois sub-blocos (Lucro total c/
+      dividendos + Lucro/Prejuízo s/ dividendos com %). Card Proventos: removido
+      texto "s/ custo" do YoC.
+24. ✅ Proventos — filtro por ativo, YoC individual por lançamento, cards de resumo
+      aprimorados (YoC acumulado, total últimos 12 meses, gaveta "ver detalhe" com
+      totais por ativo pagante, ativo + data no maior provento).
+25. ✅ Posições — ordenação clicável por Quantidade, Rentabilidade e Saldo atual em
+      todos os grupos (Ação, FII, BDR, Cripto). Estado `_ordemPosicoes` reseta ao
+      sair da página. Primeiro clique: decrescente (maior primeiro).
 
 ## Preferências de trabalho
 
