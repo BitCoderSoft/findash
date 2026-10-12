@@ -6351,7 +6351,7 @@ function evolucaoMensalProventos(usuarioId, ativoId) {
 function renderProventos(user) {
     var db = loadDB();
     var todosProvs = db.transacoes
-        .filter(function (t) { return t.usuarioId === user.id && (t.tipo === 'PROVENTO' || t.tipo === 'RENDIMENTO_RF'); })
+        .filter(function (t) { return t.usuarioId === user.id && t.tipo === 'PROVENTO'; })
         .slice()
         .sort(function (a, b) { return a.data < b.data ? 1 : a.data > b.data ? -1 : 0; });
 
