@@ -35,7 +35,7 @@ Não há servidor, Python, Node ou qualquer dependência para instalar.
 
 | Página | O que faz |
 |---|---|
-| **Resumo** | KPIs de patrimônio, gráfico de evolução mensal, donut de alocação, rentabilidade vs CDI (heatmap + linha acumulada), rankings de mercado |
+| **Resumo** | KPIs de patrimônio (saldo, lucro/prejuízo, proventos, resultado vs custo + CDI do mês), gráfico de evolução mensal, donut de alocação, rentabilidade vs CDI (gráfico acumulado partindo do zero + heatmap mensal), rankings de mercado |
 | **Posições** | Posição por ativo com preço médio, rentabilidade real e destaques da carteira |
 | **Proventos** | Histórico de dividendos/JCP/rendimentos com YoC e retorno total |
 | **Lançamentos** | CRUD de todas as operações via drawer lateral |

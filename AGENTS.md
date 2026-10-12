@@ -275,6 +275,32 @@ fechados automaticamente fora da migração de versão.
 CDI) em % para Chart.js. Renderizado por `htmlChartJs`. Exibido dentro de
 `secaoRentabilidadeHTML`, que agrupa título + subtítulo + gráfico + heatmap.
 
+**Origem no zero**: a função prepende um ponto `(origemLabel, 0, 0)` antes do
+primeiro mês calculado. O label vem do `primeiroMes` (mês de formação) quando
+existe; caso contrário é derivado do mês anterior ao primeiro ponto. Ambas as
+linhas partem do mesmo 0% — a divergência visual reflete apenas retorno
+incremental, nunca artefato de base diferente.
+
+### Heatmap (mês a mês)
+
+Células renderizadas por `heatmapCelulasHTML`. Dimensões atuais: `72px` de
+largura, `padding: 4px 5px` (compacto). Cores:
+- **Acima do CDI**: verde claro.
+- **Abaixo do CDI**: vermelho claro.
+- **Formação** (`primeiroMes`): neutro com texto "formação / sem base".
+- **Mês corrente** (`parcial: true`): fundo azul claro + borda tracejada + fontes
+  em azul `#2563eb` — identidade visual própria, separada das células fechadas.
+
+### Card "Resultado vs custo" (dashboard)
+
+O quarto KPI do Resumo exibe:
+- Valor principal: `(saldo + proventos − custo) / custo` em %.
+- Linha secundária: CDI estimado do mês atual (`cdiHoje.cdiMesEst`), vindo da
+  busca de CDI (BCB SGS 12) — substitui o chip de acumulado que existia antes.
+- Botão `?` que abre `#drawer-info-resultado-custo`: gaveta com os valores reais
+  do momento (resultado %, CDI/mês, acumulado carteira vs CDI, delta p.p.) e 4
+  parágrafos explicativos em linguagem leiga.
+
 ## Armazenamento (`armazem`)
 
 **Nunca usar `localStorage` diretamente.** Toda leitura/escrita passa por:
