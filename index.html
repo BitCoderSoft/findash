@@ -4525,6 +4525,8 @@ var drawerState = null; // null = fechado/vazio; ou {open, editId, values, error
 // [BACKUP v1] estado da tela de backup: { textoExport, previa }. Zera ao
 // sair da página (ver navegar()).
 var backupState = null;
+// [PROV v3] filtro de ativo na página de proventos. 'todos' = sem filtro.
+var _filtroProvento = 'todos';
 
 /* =================================================================
    COMPONENTES DE TEMPLATE (HTML como string, mesma marcação dos templates
@@ -6275,9 +6277,13 @@ function renderPosicoes(user) {
 }
 
 // [PROV v2] evolução mensal de proventos: cada mês = soma dos proventos pagos nele
-function evolucaoMensalProventos(usuarioId) {
+// [PROV v3] ativoId opcional — filtra por ativo específico
+function evolucaoMensalProventos(usuarioId, ativoId) {
     var db = loadDB();
-    var provs = db.transacoes.filter(function (t) { return t.usuarioId === usuarioId && t.tipo === 'PROVENTO'; });
+    var provs = db.transacoes.filter(function (t) {
+        return t.usuarioId === usuarioId && t.tipo === 'PROVENTO' &&
+            (!ativoId || ativoId === 'todos' || t.ativoId === ativoId);
+    });
     if (!provs.length) return [];
 
     var deltasPorMes = {};
@@ -6310,30 +6316,56 @@ function evolucaoMensalProventos(usuarioId) {
     return resultado;
 }
 
-// [PROV v2] página dedicada de proventos
+// [PROV v3] página dedicada de proventos com filtro por ativo
 function renderProventos(user) {
     var db = loadDB();
-    var provs = db.transacoes
-        .filter(function (t) { return t.usuarioId === user.id && t.tipo === 'PROVENTO'; })
+    var todosProvs = db.transacoes
+        .filter(function (t) { return t.usuarioId === user.id && (t.tipo === 'PROVENTO' || t.tipo === 'RENDIMENTO_RF'); })
         .slice()
         .sort(function (a, b) { return a.data < b.data ? 1 : a.data > b.data ? -1 : 0; });
 
-    var totalGeral = provs.reduce(function (s, t) { return s + (Number(t.valor) || 0); }, 0);
+    // Ativos únicos com proventos (para o seletor)
+    var ativosComProv = {};
+    todosProvs.forEach(function (t) {
+        if (!ativosComProv[t.ativoId]) {
+            var at = db.ativos.filter(function (a) { return a.id === t.ativoId; })[0];
+            if (at) ativosComProv[t.ativoId] = at.ticker;
+        }
+    });
+    var ativosFiltro = Object.keys(ativosComProv).sort(function (a, b) {
+        return ativosComProv[a] < ativosComProv[b] ? -1 : 1;
+    });
 
-    // KPIs resumo
+    // Seletor de filtro
+    var ativoFiltradoId = (_filtroProvento && _filtroProvento !== 'todos') ? Number(_filtroProvento) : 'todos';
+    var opcoesSelect = '<option value="todos"' + (_filtroProvento === 'todos' ? ' selected' : '') + '>Todos os ativos</option>' +
+        ativosFiltro.map(function (id) {
+            return '<option value="' + id + '"' + (_filtroProvento == id ? ' selected' : '') + '>' + escapeHtml(ativosComProv[id]) + '</option>';
+        }).join('');
+    var filtroBarHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">' +
+        '<label for="select-filtro-provento" style="font-size:var(--text-sm);color:var(--color-muted);white-space:nowrap;">Filtrar por ativo:</label>' +
+        '<select id="select-filtro-provento" class="input" style="max-width:200px;padding:6px 10px;height:auto;">' +
+        opcoesSelect + '</select></div>';
+
+    // Proventos filtrados (para tabela e KPIs)
+    var provs = todosProvs.filter(function (t) {
+        return _filtroProvento === 'todos' || String(t.ativoId) === String(_filtroProvento);
+    });
+
+    var totalGeral = provs.reduce(function (s, t) { return s + (Number(t.valor) || 0); }, 0);
     var qtdAtivos = {};
     provs.forEach(function (t) { qtdAtivos[t.ativoId] = true; });
     var numAtivos = Object.keys(qtdAtivos).length;
-    var maiorProvento = provs.reduce(function (m, t) { return (Number(t.valor) || 0) > m ? (Number(t.valor) || 0) : m; }, 0);
 
     var resumoHTML = '<div class="summary-grid">' +
         '<div class="summary-card"><span class="summary-card-title">Total recebido</span><p class="kpi-value" style="margin-top:10px;color:var(--color-success)">R$ ' + fmt2(totalGeral) + '</p></div>' +
         '<div class="summary-card"><span class="summary-card-title">Pagamentos registrados</span><p class="kpi-value" style="margin-top:10px;">' + provs.length + '</p><p class="destaque-sub">' + numAtivos + ' ativo(s) pagador(es)</p></div>' +
-        '<div class="summary-card"><span class="summary-card-title">Maior provento individual</span><p class="kpi-value" style="margin-top:10px;">' + (maiorProvento > 0 ? 'R$ ' + fmt2(maiorProvento) : '—') + '</p></div>' +
+        '<div class="summary-card"><span class="summary-card-title">Maior provento individual</span><p class="kpi-value" style="margin-top:10px;">' + (totalGeral > 0 ? 'R$ ' + fmt2(provs.reduce(function(m,t){ return Math.max(m, Number(t.valor)||0); }, 0)) : '—') + '</p></div>' +
         '</div>';
 
-    // Gráfico de evolução mensal de proventos
-    var evolucaoProv = evolucaoMensalProventos(user.id);
+    // Gráfico filtrado pelo ativo selecionado
+    var ativoIdParaGrafico = _filtroProvento !== 'todos' ? Number(_filtroProvento) : null;
+    var evolucaoProv = evolucaoMensalProventos(user.id, ativoIdParaGrafico);
     var dadosProv = dadosChartJsProventos(evolucaoProv);
     var graficoHTML = '';
     if (dadosProv) {
@@ -6345,31 +6377,40 @@ function renderProventos(user) {
             '</div>';
     }
 
+    // Posições e investido por ativo (uma só chamada)
+    var posicoesMap = {};
+    posicoesAtuais(user.id).forEach(function (p) { posicoesMap[p.ativo.id] = p; });
+
     // Tabela de proventos
     var corpoHTML;
     if (provs.length) {
         var linhas = provs.map(function (t) {
             var ativo = db.ativos.filter(function (a) { return a.id === t.ativoId; })[0];
             var dataFmt = t.data.split('-').reverse().join('/');
-            var pos = posicoesAtuais(user.id).filter(function (p) { return p.ativo.id === t.ativoId; })[0];
-            var pv = proventosPorAtivo(user.id)[t.ativoId];
+            var pos = posicoesMap[t.ativoId];
             var investido = pos ? pos.valorInvestido : 0;
-            var yocStr = (investido > 0 && pv) ? fmt2(pv.total / investido * 100) + '%' : '—';
+            // [PROV v3] YoC individual: este lançamento / custo atual do ativo
+            var yocStr = (investido > 0) ? fmt2(Number(t.valor) / investido * 100) + '%' : '—';
             return '<tr>' +
                 '<td data-label="Data">' + dataFmt + '</td>' +
                 '<td class="td-titulo"><a role="link" tabindex="0" data-rota="/ativo/' + encodeURIComponent(ativo.ticker) + '" class="ativo-link">' + escapeHtml(ativo.ticker) + '</a></td>' +
                 '<td data-label="Subtipo"><span class="trend provento">' + (SUBTIPOS_PROVENTO[t.subtipo] || t.subtipo || '—') + '</span></td>' +
                 '<td data-label="Valor"><span class="valor-provento">+ R$ ' + fmt2(t.valor) + '</span></td>' +
-                '<td data-label="YoC acumulado"><span class="yoc" style="font-size:var(--text-sm)">' + yocStr + '</span></td>' +
+                '<td data-label="YoC do provento"><span class="yoc" style="font-size:var(--text-sm)">' + yocStr + '</span></td>' +
                 '<td class="table-actions td-acoes">' +
                 '<button type="button" class="button ghost small" data-editar-id="' + t.id + '">Editar</button>' +
                 '<button type="button" class="button ghost small" data-excluir-id="' + t.id + '">Excluir</button>' +
                 '</td></tr>';
         }).join('');
 
-        corpoHTML = '<div class="table-wrap"><table class="table table-cards"><thead><tr>' +
-            '<th>Data</th><th>Ativo</th><th>Tipo</th><th>Valor recebido</th><th>YoC acumulado</th><th>Ações</th>' +
+        corpoHTML = filtroBarHTML +
+            '<div class="table-wrap"><table class="table table-cards"><thead><tr>' +
+            '<th>Data</th><th>Ativo</th><th>Tipo</th><th>Valor recebido</th><th>YoC do provento</th><th>Ações</th>' +
             '</tr></thead><tbody>' + linhas + '</tbody></table></div>';
+    } else if (todosProvs.length) {
+        // Há proventos mas nenhum para o filtro ativo — mostra seletor + mensagem
+        corpoHTML = filtroBarHTML +
+            '<div class="empty-panel"><p class="empty-title">Nenhum provento para este ativo</p></div>';
     } else {
         corpoHTML = '<div class="empty-panel">' + emptyIllustrationBars() +
             '<p class="empty-title">Nenhum provento registrado ainda</p>' +
@@ -6378,8 +6419,7 @@ function renderProventos(user) {
 
     return '<div class="app-shell">' + topbarHTML('/proventos') +
         '<main class="page-content">' +
-        '' +
-        (provs.length ? resumoHTML + graficoHTML : '') +
+        (todosProvs.length ? resumoHTML + graficoHTML : '') +
         corpoHTML +
         '</main>' + rodapeHTML() + '</div>' +
         drawerTransacaoHTML(drawerState) +
@@ -6618,6 +6658,7 @@ function navegar(rota) {
     drawerState = null;
     if (rota !== '/backup') backupState = null; // [BACKUP v1]
     if (rota !== '/balanceamento') balanceamentoState = null; // [BAL v1]
+    if (rota !== '/proventos') _filtroProvento = 'todos'; // [PROV v3]
     objetivoState = null; // [OBJ v1]
     try {
         if (location.hash !== '#' + rota) history.pushState(null, '', '#' + rota);
@@ -6940,6 +6981,17 @@ document.addEventListener('change', function (event) {
     else if (alvo.id === 'f_ticker') aplicarAutopreenchimento(alvo.form);
     else if (alvo.id === 'f_ticker_destino') atualizarInfoDestino(alvo.form);
     else if (alvo.id === 'f_subtipo') delete alvo.dataset.auto; // [PROV v1]
+});
+
+// [PROV v3] filtro de ativo na página de proventos
+document.addEventListener('change', function (event) {
+    if (event.target.id !== 'select-filtro-provento') return;
+    _filtroProvento = event.target.value;
+    var user = currentUser();
+    if (!user) return;
+    var app = document.getElementById('app');
+    app.innerHTML = renderProventos(user);
+    inicializarCharts();
 });
 
 document.addEventListener('input', function (event) {
