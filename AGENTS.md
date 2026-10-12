@@ -271,15 +271,42 @@ fechados automaticamente fora da migração de versão.
 
 ### Gráfico de linha acumulada
 
-`dadosChartJsRentabAcumulada(usuarioId, mtd)` gera séries acumuladas (Carteira e
-CDI) em % para Chart.js. Renderizado por `htmlChartJs`. Exibido dentro de
-`secaoRentabilidadeHTML`, que agrupa título + subtítulo + gráfico + heatmap.
+`dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa)` gera séries acumuladas
+(Carteira, CDI e IBOV) em % para Chart.js. Renderizado por `htmlChartJs`.
+Exibido dentro de `secaoRentabilidadeHTML`, que agrupa título + subtítulo +
+gráfico + heatmap.
 
-**Origem no zero**: a função prepende um ponto `(origemLabel, 0, 0)` antes do
+**Origem no zero**: a função prepende um ponto `(origemLabel, 0, 0, 0)` antes do
 primeiro mês calculado. O label vem do `primeiroMes` (mês de formação) quando
-existe; caso contrário é derivado do mês anterior ao primeiro ponto. Ambas as
+existe; caso contrário é derivado do mês anterior ao primeiro ponto. As três
 linhas partem do mesmo 0% — a divergência visual reflete apenas retorno
 incremental, nunca artefato de base diferente.
+
+**Linha IBOV**: terceira série, vermelha tracejada (`#dc2626`, `borderDash: [4,3]`).
+O retorno acumulado usa `ibovMapa[mes] / ibovMapa[mesAnterior] - 1` para cada
+ponto. Se o mapa não tiver o par de meses necessário, aquele ponto fica em 0
+(não quebra a série).
+
+**IBOV — fonte e persistência** (`buscarPrecosMensaisIBOV`):
+
+- O plano free da brapi suporta apenas `interval=1d`; `interval=1mo` retorna 400.
+- A função pede `range=3mo&interval=1d` (diário, dentro do plano free) e agrega
+  para mensal tomando o **último fechamento de cada mês** — basta iterar os
+  candles em ordem cronológica e sobrescrever `novos[anoMes]`, pois o último
+  vence.
+- O histórico acumulado fica em `IBOV_HIST_KEY = 'DASH_FINANCE_IBOV_HIST_V1'`
+  no `armazem`. A cada abertura: meses já fechados são preservados (nunca
+  sobrescritos); o mês corrente (parcial) sempre atualiza. Assim o histórico
+  cresce automaticamente mês a mês sem nunca precisar de mais do que 3 meses
+  de dados por chamada.
+- Token obrigatório na URL (`&token=`) e no header `Authorization: Bearer` —
+  o endpoint de índices da brapi exige ambos.
+- Helpers: `loadIBOVHist()` / `saveIBOVHist(mapa)` — leitura/gravação via
+  `armazem`.
+- `_ibovMapaCache` — cache de sessão em memória (evita refetch na mesma abertura).
+- `renderDashboard` passa `ibovMapa` para `secaoRentabilidadeHTML`; se o mapa
+  vier vazio (falha de rede, primeira abertura sem histórico), a linha IBOV
+  simplesmente não é adicionada ao gráfico — nenhum erro.
 
 ### Heatmap (mês a mês)
 
@@ -325,6 +352,7 @@ Chaves do sistema:
 | `DASH_FINANCE_QUOTE_CACHE_V1` | Cache de cotações B3 |
 | `DASH_FINANCE_HIST_CACHE_V1` | Cache de histórico de preço |
 | `DASH_FINANCE_RANKING_CACHE_V1` | Cache de rankings de mercado |
+| `DASH_FINANCE_IBOV_HIST_V1` | Histórico acumulado mensal do IBOV (`{ "YYYY-MM": close }`) |
 
 ## Design system (CSS)
 
@@ -399,7 +427,7 @@ Princípios — manter consistência em telas novas:
 17. **Pendente**: suporte multi-dispositivo (hoje cada browser tem sua própria
       carteira — export/import é o workaround atual).
 18. **Pendente**: modo escuro.
-19. **Pendente**: comparação com índices (CDI, IBOV) na evolução mensal.
+19. ✅ Comparação com índices (CDI, IBOV) no gráfico acumulado de rentabilidade.
 
 ## Preferências de trabalho
 

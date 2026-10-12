@@ -335,7 +335,8 @@ input:focus, select:focus { border-color: var(--color-primary); outline: none; b
 /* Auth shell (split screen) */
 .auth-shell { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
 .auth-brand { background: linear-gradient(160deg, var(--color-brand-panel-1), var(--color-brand-panel-2)); color: #fff; display: flex; flex-direction: column; justify-content: center; padding: 64px; position: relative; overflow: hidden; }
-.auth-brand .brand-mark-lg { width: 36px; height: 36px; border-radius: 9px; background: #fff; color: var(--color-brand-panel-1); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-lg); margin-bottom: 28px; }
+.auth-brand .brand-mark-lg { background: transparent; border-radius: 0; width: auto; height: auto; display: block; margin-bottom: 24px; }
+.auth-brand .brand-mark-lg img { height: 44px; width: auto; display: block; }
 .auth-brand h2 { font-size: var(--text-2xl); font-weight: 600; margin-bottom: 12px; max-width: 360px; }
 .auth-brand p { color: rgba(255, 255, 255, 0.65); font-size: var(--text-md); max-width: 340px; line-height: 1.6; margin-bottom: 40px; }
 .auth-illustration { width: 100%; max-width: 360px; height: auto; opacity: 0.9; }
@@ -1844,6 +1845,7 @@ var CDI_CACHE_KEY = 'DASH_FINANCE_CDI_CACHE_V1';
 // [RENT v2] cache de preços mensais históricos por ticker (24h — dado imutável)
 var HIST_MENSAL_CACHE_KEY = 'DASH_FINANCE_HIST_MENSAL_V1';
 var HIST_MENSAL_TTL_MS = 24 * 60 * 60 * 1000;
+var IBOV_HIST_KEY = 'DASH_FINANCE_IBOV_HIST_V1'; // histórico acumulado mensal do IBOV (cresce a cada abertura)
 // BCB SGS série 12 = CDI over diário (API pública, sem autenticação)
 var BCB_CDI_LATEST_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json';
 var BCB_CDI_PERIODO_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json';
@@ -2822,10 +2824,10 @@ function htmlChartJs(id, dados, formatoY, altura, tipo) {
 }
 
 // [RENT v4] Série acumulada carteira × CDI a partir do historicoRentabilidade.
-// Inclui MTD (mês corrente parcial) se fornecido. Ambas as linhas partem de 0%
-// no mês de formação (primeiroMes) para que carteira e CDI comecem juntos.
+// Inclui MTD (mês corrente parcial) se fornecido. Todas as linhas partem de 0%
+// no mês de formação (primeiroMes). ibovMapa opcional: { "YYYY-MM": price }.
 // Retorna null se não houver nenhum ponto válido.
-function dadosChartJsRentabAcumulada(usuarioId, mtd) {
+function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa) {
     var db = loadDB();
     var todoHist = (db.historicoRentabilidade || []).filter(function (h) {
         return h.usuarioId === usuarioId;
@@ -2852,10 +2854,13 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd) {
     var labels = [];
     var serieCart = [];
     var serieCdi = [];
+    var serieIbov = [];
     var acumCart = 1;
     var acumCdi = 1;
+    var acumIbov = 1;
+    var temIbov = ibovMapa && Object.keys(ibovMapa).length > 0;
 
-    // Ponto de origem: ambas as linhas partem de 0% no mês do primeiro aporte
+    // Ponto de origem: todas as linhas partem de 0% no mês do primeiro aporte
     var origemLabel;
     if (primMes) {
         var op = primMes.mes.split('-');
@@ -2870,6 +2875,7 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd) {
     labels.push(origemLabel);
     serieCart.push(0);
     serieCdi.push(0);
+    if (temIbov) serieIbov.push(0);
 
     pontos.forEach(function (h) {
         var partes = h.mes.split('-');
@@ -2881,38 +2887,60 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd) {
         acumCdi *= (1 + cdi / 100);
         serieCart.push(+( (acumCart - 1) * 100 ).toFixed(4));
         serieCdi.push(+( (acumCdi - 1) * 100 ).toFixed(4));
+        if (temIbov) {
+            var prevM = _mesAnterior(h.mes);
+            var ibovFim = ibovMapa[h.mes];
+            var ibovIni = ibovMapa[prevM];
+            var ibovRet = (ibovFim && ibovIni) ? (ibovFim / ibovIni - 1) : 0;
+            acumIbov *= (1 + ibovRet);
+            serieIbov.push(+( (acumIbov - 1) * 100 ).toFixed(4));
+        }
     });
 
-    return {
-        labels: labels,
-        datasets: [
-            {
-                label: 'Carteira',
-                data: serieCart,
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37, 99, 235, 0.12)',
-                fill: true,
-                tension: 0.25,
-                pointRadius: 4,
-                pointHoverRadius: 6,
-                pointBackgroundColor: '#2563eb',
-                borderWidth: 2,
-            },
-            {
-                label: 'CDI',
-                data: serieCdi,
-                borderColor: '#d97706',
-                backgroundColor: 'transparent',
-                fill: false,
-                tension: 0.25,
-                pointRadius: 3,
-                pointHoverRadius: 5,
-                pointBackgroundColor: '#d97706',
-                borderWidth: 2,
-                borderDash: [],
-            },
-        ],
-    };
+    var datasets = [
+        {
+            label: 'Carteira',
+            data: serieCart,
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37, 99, 235, 0.10)',
+            fill: true,
+            tension: 0.25,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            pointBackgroundColor: '#2563eb',
+            borderWidth: 2,
+        },
+        {
+            label: 'CDI',
+            data: serieCdi,
+            borderColor: '#d97706',
+            backgroundColor: 'transparent',
+            fill: false,
+            tension: 0.25,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: '#d97706',
+            borderWidth: 2,
+            borderDash: [],
+        },
+    ];
+    if (temIbov) {
+        datasets.push({
+            label: 'IBOV',
+            data: serieIbov,
+            borderColor: '#dc2626',
+            backgroundColor: 'transparent',
+            fill: false,
+            tension: 0.25,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: '#dc2626',
+            borderWidth: 2,
+            borderDash: [4, 3],
+            hidden: true,
+        });
+    }
+    return { labels: labels, datasets: datasets };
 }
 
 function inicializarCharts() {
@@ -2940,6 +2968,7 @@ function inicializarCharts() {
                     legend: {
                         display: item.dados.datasets.length > 1,
                         position: 'bottom',
+
                         labels: {
                             boxWidth: 10, boxHeight: 10,
                             borderRadius: 2, useBorderRadius: true,
@@ -3911,6 +3940,58 @@ function buscarPrecosMensais(ticker, classe) {
     if (classe === 'CRIPTO') return buscarPrecosMensaisCripto(ticker);
     if (classe === 'RENDA_FIXA') return Promise.resolve({});
     return buscarPrecosMensaisB3(ticker);
+}
+
+// [IBOV v1] IBOV mensal acumulado localmente.
+// O plano brapi free suporta até range=3mo — então buscamos só os últimos 3 meses
+// a cada abertura e mesclamos com o histórico já salvo em localStorage (IBOV_HIST_KEY).
+// Com o uso regular, o histórico cresce sozinho sem nunca pedir mais do que o plano permite.
+function loadIBOVHist() {
+    try { var r = armazem.get(IBOV_HIST_KEY); return r ? JSON.parse(r) : {}; } catch (e) { return {}; }
+}
+function saveIBOVHist(mapa) {
+    try { armazem.set(IBOV_HIST_KEY, JSON.stringify(mapa)); } catch (e) {}
+}
+
+function buscarPrecosMensaisIBOV() {
+    if (_ibovMapaCache && Object.keys(_ibovMapaCache).length) return Promise.resolve(_ibovMapaCache);
+    var historico = loadIBOVHist();
+    // Plano free: só interval=1d disponível. Buscamos diários 3mo e pegamos o último close por mês.
+    var url = BRAPI_HISTORICAL_URL + '?symbols=%5EBVSP&range=3mo&interval=1d&token=' + BRAPI_TOKEN;
+    return brapiFetch(url, { headers: { Authorization: 'Bearer ' + BRAPI_TOKEN } })
+        .then(function (resp) { return resp && resp.ok ? resp.json() : null; })
+        .then(function (payload) {
+            var novos = {};
+            if (payload) {
+                var item = (payload.results || [])[0];
+                var lista = (item && item.data && item.data.historicalDataPrice) || [];
+                lista.forEach(function (p) {
+                    var am = normalizarDataBrapi(p.date);
+                    if (am && p.close) novos[am] = p.close;
+                });
+            }
+            // Mescla: preserva histórico antigo; adiciona/atualiza meses novos
+            // (mês corrente pode ser parcial — sempre atualiza; meses fechados nunca retrocedem)
+            var mesAtual = hojeISO().slice(0, 7);
+            Object.keys(novos).forEach(function (am) {
+                if (am === mesAtual || !historico[am]) historico[am] = novos[am];
+            });
+            if (Object.keys(historico).length) saveIBOVHist(historico);
+            _ibovMapaCache = historico;
+            return historico;
+        })
+        .catch(function () {
+            _ibovMapaCache = historico;
+            return historico;
+        });
+}
+
+// Retorna o mês anterior a "YYYY-MM" como "YYYY-MM"
+function _mesAnterior(anoMes) {
+    var p = anoMes.split('-');
+    var ano = parseInt(p[0], 10), mes = parseInt(p[1], 10) - 1;
+    if (mes < 1) { mes = 12; ano--; }
+    return ano + '-' + (mes < 10 ? '0' : '') + mes;
 }
 
 /* =================================================================
@@ -5251,6 +5332,7 @@ function rentabilidadeCarteiraMes(usuarioId, anoMes, precosMensaisPorTicker) {
 
 // [RENT v4] Cache de MTD (mês corrente parcial) — 1× por abertura do app
 var _mtdCache = null;
+var _ibovMapaCache = null; // sessão: preços mensais IBOV { "YYYY-MM": price }
 
 function _anoMesAtual() {
     var h = new Date();
@@ -5480,7 +5562,7 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
 function atualizarHeatmapDOM(usuarioId) {
     var container = document.getElementById('rentab-bloco');
     if (!container) return;
-    container.outerHTML = secaoRentabilidadeHTML(usuarioId);
+    container.outerHTML = secaoRentabilidadeHTML(usuarioId, null, _ibovMapaCache);
     inicializarCharts();
 }
 
@@ -5525,9 +5607,10 @@ function heatmapCelulasHTML(usuarioId, mtd) {
 }
 
 // [RENT v4] Bloco completo: gráfico de linhas acumuladas + heatmap mês a mês
-function secaoRentabilidadeHTML(usuarioId, mtd) {
+function secaoRentabilidadeHTML(usuarioId, mtd, ibovMapa) {
     mtd = mtd || _mtdCache;
-    var dadosLinha = dadosChartJsRentabAcumulada(usuarioId, mtd);
+    ibovMapa = ibovMapa || _ibovMapaCache || {};
+    var dadosLinha = dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa);
     var graficoHTML;
     if (dadosLinha) {
         graficoHTML = htmlChartJs(
@@ -5634,11 +5717,14 @@ function renderDashboard(user) {
     var cotacaoPromise = tickers.length ? buscarCotacoes(tickers) : Promise.resolve({});
     var rankingsPromise = buscarRankingsResumo();
     var cdiPromise = buscarCDI(); // [CDI v1] uma chamada por dia, via cache
+    var ibovPromise = buscarPrecosMensaisIBOV(); // [IBOV v1] histórico mensal ^BVSP
 
-    return Promise.all([cotacaoPromise, rankingsPromise, cdiPromise]).then(function (resultadosPromise) {
+    return Promise.all([cotacaoPromise, rankingsPromise, cdiPromise, ibovPromise]).then(function (resultadosPromise) {
         var cotacoes = resultadosPromise[0];
         var rankings = resultadosPromise[1];
         var cdiHoje = resultadosPromise[2]; // { cdiDiario, cdiMesEst, data } ou null
+        var ibovMapa = resultadosPromise[3] || {};
+        _ibovMapaCache = ibovMapa;
         aplicarCotacoesLista(posicoes, cotacoes);
 
         var kpis = calcularKpis(user.id);
@@ -5785,7 +5871,7 @@ function renderDashboard(user) {
             kpiPosicoesHTML +
             '</div>' +
             '<div class="panel-grid">' + evolucaoHTML + alocacaoHTML + '</div>' +
-            secaoRentabilidadeHTML(user.id, mtdAgora) +
+            secaoRentabilidadeHTML(user.id, mtdAgora, ibovMapa) +
             renderRankingsHTML(rankings) +
             '</main>' + rodapeHTML() + '</div>' +
             drawerTransacaoHTML(drawerState) +
