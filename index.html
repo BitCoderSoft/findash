@@ -1852,6 +1852,7 @@ var HIST_MENSAL_CACHE_KEY = 'DASH_FINANCE_HIST_MENSAL_V1';
 var HIST_MENSAL_TTL_MS = 24 * 60 * 60 * 1000;
 var IBOV_HIST_KEY  = 'DASH_FINANCE_IBOV_HIST_V1';  // histórico acumulado mensal do IBOV
 var STOCK_HIST_KEY = 'DASH_FINANCE_STOCK_HIST_V1'; // histórico acumulado mensal por ticker B3 { "ITSA4": { "YYYY-MM": close } }
+var FECHAMENTOS_KEY = 'DASH_FINANCE_FECHAMENTOS_V1'; // snapshot de cotações no fechamento { "YYYY-MM": { "TICKER": price, "IBOV": price } }
 // BCB SGS série 12 = CDI over diário (API pública, sem autenticação)
 var BCB_CDI_LATEST_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json';
 var BCB_CDI_PERIODO_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json';
@@ -4008,6 +4009,13 @@ function loadStockHist() {
 function saveStockHist(mapa) {
     try { armazem.set(STOCK_HIST_KEY, JSON.stringify(mapa)); } catch (e) {}
 }
+// [FECH v1] snapshot de cotações usadas em cada fechamento mensal { "YYYY-MM": { "TICKER": price, "IBOV": price } }
+function loadCotacoesFechamento() {
+    try { var r = armazem.get(FECHAMENTOS_KEY); return r ? JSON.parse(r) : {}; } catch (e) { return {}; }
+}
+function saveCotacoesFechamento(mapa) {
+    try { armazem.set(FECHAMENTOS_KEY, JSON.stringify(mapa)); } catch (e) {}
+}
 
 // Divide [dataInicio, dataFim] em janelas de até 90 dias (limite do plano free brapi).
 // Retorna array de { s: 'YYYY-MM-DD', e: 'YYYY-MM-DD' }.
@@ -4080,9 +4088,13 @@ function buscarPrecosMensaisIBOV(dataInicio) {
     }
 
     var primMesNec = dataInicio.slice(0, 7);
-    var mesesCobr  = Object.keys(hist).sort();
+    // _mesPrevOk: guarda em que mesAtual o mesPrev foi corrigido com o fechamento real.
+    // Se não confirmado para o mês atual, força fetch de 90 dias para corrigir mesPrev
+    // (caso tenha sido gravado mid-month quando ainda era mesAtual).
+    var mesPrevOk  = hist['_mesPrevOk'] || null;
+    var mesesCobr  = Object.keys(hist).filter(function(k) { return k[0] !== '_'; }).sort();
     var priMesCobr = mesesCobr[0] || null;
-    var coberto    = priMesCobr && priMesCobr <= primMesNec && hist[mesAtual] && hist[mesPrev];
+    var coberto    = priMesCobr && priMesCobr <= primMesNec && hist[mesAtual] && mesPrevOk === mesAtual;
 
     if (coberto) {
         _ibovMapaCache = hist;
@@ -4091,12 +4103,18 @@ function buscarPrecosMensaisIBOV(dataInicio) {
 
     var fetchInicio = dataInicio;
     if (priMesCobr && priMesCobr <= primMesNec && !hist[mesAtual]) {
+        // mesAtual ausente: só precisa dos últimos 90 dias
         var d90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
         fetchInicio = d90.toISOString().slice(0, 10);
+    } else if (priMesCobr && priMesCobr <= primMesNec && mesPrevOk !== mesAtual) {
+        // mesAtual presente mas mesPrev não confirmado: 90 dias para corrigir mesPrev
+        var d90b = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        fetchInicio = d90b.toISOString().slice(0, 10);
     }
     var chunks = gerarChunks(fetchInicio, hoje);
 
     return _fetchChunksB3('%5EBVSP', chunks, hist, mesAtual, mesPrev).then(function () {
+        hist['_mesPrevOk'] = mesAtual; // confirma que mesPrev foi atualizado neste mês
         if (Object.keys(hist).length) saveIBOVHist(hist);
         _ibovMapaCache = hist;
         return hist;
@@ -5639,7 +5657,18 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
         });
     });
 
-    return Promise.all(promessasPrecos).then(function (resultados) {
+    // [FECH v1] também busca IBOV para incluir no snapshot de fechamento
+    var primeiraDataB3 = null;
+    tickersComClasse.forEach(function (tc) {
+        if (tc.classe !== 'CRIPTO' && tc.classe !== 'RENDA_FIXA' && tc.dataInicio) {
+            if (!primeiraDataB3 || tc.dataInicio < primeiraDataB3) primeiraDataB3 = tc.dataInicio;
+        }
+    });
+    var promessaIBOV = primeiraDataB3 ? buscarPrecosMensaisIBOV(primeiraDataB3) : Promise.resolve({});
+
+    return Promise.all([Promise.all(promessasPrecos), promessaIBOV]).then(function (ambos) {
+        var resultados = ambos[0];
+        var ibovMapa = ambos[1] || {};
         var precosMensaisPorTicker = {};
         resultados.forEach(function (r) { precosMensaisPorTicker[r.ticker] = r.mapa; });
 
@@ -5677,14 +5706,76 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                             proventos: resultado.proventos,
                         });
                         saveDB(dbSave);
+
+                        // [FECH v1] snapshot das cotações usadas neste fechamento
+                        var fechamentos = loadCotacoesFechamento();
+                        if (!fechamentos[am]) {
+                            var snap = {};
+                            Object.keys(precosMensaisPorTicker).forEach(function (tk) {
+                                var p = precosMensaisPorTicker[tk][am];
+                                if (p) snap[tk] = p;
+                            });
+                            if (ibovMapa[am]) snap['IBOV'] = ibovMapa[am];
+                            fechamentos[am] = snap;
+                            saveCotacoesFechamento(fechamentos);
+                        }
+
                         return novos + 1;
                     }
                     return novos;
                 });
             });
         });
-        return chain;
+        // [FECH v1] preenche snapshots retroativos para meses já fechados sem snapshot,
+        // usando os preços já buscados nesta mesma execução — sem re-fetch.
+        return chain.then(function (novos) {
+            var fechAtual = loadCotacoesFechamento();
+            var dbFinal = loadDB();
+            var temNovo = false;
+            (dbFinal.historicoRentabilidade || []).forEach(function (h) {
+                if (h.usuarioId !== usuarioId) return;
+                if (fechAtual[h.mes]) {
+                    // Snapshot existe: atualizar IBOV se o valor mudou (ex.: mesPrev corrigido pelo fetch)
+                    var ibovNovo = ibovMapa[h.mes];
+                    if (ibovNovo && fechAtual[h.mes]['IBOV'] !== ibovNovo) {
+                        fechAtual[h.mes]['IBOV'] = ibovNovo;
+                        temNovo = true;
+                    }
+                    return;
+                }
+                var snap = {};
+                Object.keys(precosMensaisPorTicker).forEach(function (tk) {
+                    var p = precosMensaisPorTicker[tk][h.mes];
+                    if (p) snap[tk] = p;
+                });
+                if (ibovMapa[h.mes]) snap['IBOV'] = ibovMapa[h.mes];
+                if (Object.keys(snap).length > 0) {
+                    fechAtual[h.mes] = snap;
+                    temNovo = true;
+                }
+            });
+            if (temNovo) saveCotacoesFechamento(fechAtual);
+            return novos;
+        });
     });
+}
+
+// [FECH v1] Preenche cotacoesFechamento para meses já fechados usando apenas dados em cache
+// (stockHist + ibovHist). Roda no boot, sem fetch. Cripto fica vazio até o próximo fechamento.
+function popularCotacoesFechamentoRetroativo(usuarioId) {
+    var db = loadDB();
+    var fechamentos = loadCotacoesFechamento();
+    var sh = loadStockHist();
+    var ih = loadIBOVHist();
+    var temNovo = false;
+    (db.historicoRentabilidade || []).forEach(function (h) {
+        if (h.usuarioId !== usuarioId || fechamentos[h.mes]) return;
+        var snap = {};
+        Object.keys(sh).forEach(function (tk) { var p = sh[tk][h.mes]; if (p) snap[tk] = p; });
+        if (ih[h.mes]) snap['IBOV'] = ih[h.mes];
+        if (Object.keys(snap).length > 0) { fechamentos[h.mes] = snap; temNovo = true; }
+    });
+    if (temNovo) saveCotacoesFechamento(fechamentos);
 }
 
 // [RENT v4] Atualiza o bloco de rentabilidade (linhas + heatmap) sem re-render da página.
@@ -6799,6 +6890,8 @@ function renderCurrentRoute() {
     // [RENT v2] fecha meses anteriores em background — não bloqueia o render.
     // Quando termina, atualiza só o heatmap no DOM (sem re-renderizar a página).
     if (user) {
+        // [FECH v1] preenche snapshots retroativos imediatamente com cache (B3 + IBOV)
+        popularCotacoesFechamentoRetroativo(user.id);
         fecharMesAnteriorSeNecessario(user.id)
             .then(function (novos) { if (novos > 0) atualizarHeatmapDOM(user.id); })
             .catch(function () {});
@@ -8516,7 +8609,7 @@ document.addEventListener('keydown', function (event) {
 // (dumpdata filtrado por usuário resolve boa parte).
 
 var BACKUP_FORMATO = 'dash-finance-backup';
-var BACKUP_VERSAO = 2;
+var BACKUP_VERSAO = 3; // [FECH v1] v3 adiciona cotacoesFechamento
 var ANTES_IMPORT_KEY = 'DASH_FINANCE_ANTES_IMPORT_V1';
 
 function montarBackup(usuarioId) {
@@ -8561,6 +8654,8 @@ function montarBackup(usuarioId) {
         // [HIST v1] histórico de preços mensais (evita re-fetch na importação)
         stockHist: loadStockHist(),
         ibovHist: loadIBOVHist(),
+        // [FECH v1] cotações no momento de cada fechamento — fonte de verdade para relatórios externos
+        cotacoesFechamento: loadCotacoesFechamento(),
         ativos: db.ativos
             .filter(function (a) { return usados[a.id]; })
             .map(function (a) { return { id: a.id, ticker: a.ticker, classe: a.classe }; }),
@@ -8778,6 +8873,7 @@ function validarBackup(texto) {
             historicoRentabilidade: Array.isArray(obj.historicoRentabilidade) ? obj.historicoRentabilidade : null,
             stockHist: obj.stockHist && typeof obj.stockHist === 'object' ? obj.stockHist : null, // [HIST v1]
             ibovHist: obj.ibovHist && typeof obj.ibovHist === 'object' ? obj.ibovHist : null,     // [HIST v1]
+            cotacoesFechamento: obj.cotacoesFechamento && typeof obj.cotacoesFechamento === 'object' ? obj.cotacoesFechamento : null, // [FECH v1]
         },
         resumo: {
             usuario: obj.usuario || '',
@@ -8863,9 +8959,13 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
         });
     }
 
-    // [HIST v1] restaura histórico de preços mensais (evita re-fetch no próximo boot)
-    if (dados.stockHist) saveStockHist(dados.stockHist);
-    if (dados.ibovHist) saveIBOVHist(dados.ibovHist);
+    // [HIST v1] restaura histórico de preços mensais.
+    // Sempre sobrescreve (com {} quando ausente no backup) para limpar cache poluído
+    // de versões anteriores — o boot vai re-popular via fetch.
+    saveStockHist(dados.stockHist || {});
+    saveIBOVHist(dados.ibovHist || {});
+    // [FECH v1] restaura snapshot de cotações de fechamento (limpa se ausente)
+    saveCotacoesFechamento(dados.cotacoesFechamento || {});
 
     // [RENT v5] histórico de rentabilidade mensal.
     // Limpa o histórico deste usuário e força recálculo completo no próximo boot
