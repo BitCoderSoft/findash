@@ -5943,6 +5943,7 @@ function renderDashboard(user) {
         var resultadoVsCusto = kpis.valorInvestido > 0
             ? ((lucroTotal + provTotal) / kpis.valorInvestido) * 100
             : null;
+        var lucroClasse = temLucroTotal ? (lucroTotal >= 0 ? 'up' : 'down') : '';
         var lucroComDiv = lucroTotal + provTotal;
         var lucroPctMercado = kpis.valorInvestido > 0 ? (lucroTotal / kpis.valorInvestido * 100) : null;
         var clsL = lucroTotal >= 0 ? 'up' : 'down';
