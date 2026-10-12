@@ -442,6 +442,7 @@ a.nav-item:hover { color: var(--color-text); }
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     padding: 20px 22px;
+    margin-top: 24px;
     margin-bottom: 24px;
     box-shadow: var(--shadow-xs);
 }
@@ -489,9 +490,9 @@ a.nav-item:hover { color: var(--color-text); }
 }
 .heatmap-celula {
     flex: 0 0 auto;
-    width: 56px;
+    width: 72px;
     border-radius: 6px;
-    padding: 5px 4px 5px;
+    padding: 4px 5px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -501,11 +502,15 @@ a.nav-item:hover { color: var(--color-text); }
 .heatmap-celula.acima { background: rgba(34,197,94,0.13); border-color: rgba(34,197,94,0.2); }
 .heatmap-celula.abaixo { background: rgba(239,68,68,0.11); border-color: rgba(239,68,68,0.18); }
 .heatmap-celula.neutro { background: var(--color-surface-2, rgba(0,0,0,0.04)); border-color: var(--color-border); }
-.heatmap-celula.parcial { border-style: dashed; opacity: 0.92; }
+/* Mês corrente parcial: azul claro, sobrescreve acima/abaixo */
+.heatmap-celula.parcial { background: rgba(37,99,235,0.07) !important; border-color: rgba(37,99,235,0.22) !important; border-style: dashed !important; opacity: 1; }
+.heatmap-celula.parcial .heatmap-mes { color: #2563eb; opacity: 0.8; }
+.heatmap-celula.parcial .heatmap-pct { color: #2563eb !important; }
+.heatmap-celula.parcial .heatmap-cdi-ref { color: rgba(37,99,235,0.55); }
 .heatmap-mes { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-subtle); }
 .heatmap-pct {
     font-family: var(--font-display);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
 }
@@ -2817,15 +2822,23 @@ function htmlChartJs(id, dados, formatoY, altura, tipo) {
 }
 
 // [RENT v4] Série acumulada carteira × CDI a partir do historicoRentabilidade.
-// Ignora meses de formação. Inclui MTD (mês corrente parcial) se fornecido.
+// Inclui MTD (mês corrente parcial) se fornecido. Ambas as linhas partem de 0%
+// no mês de formação (primeiroMes) para que carteira e CDI comecem juntos.
 // Retorna null se não houver nenhum ponto válido.
 function dadosChartJsRentabAcumulada(usuarioId, mtd) {
     var db = loadDB();
-    var hist = (db.historicoRentabilidade || []).filter(function (h) {
-        return h.usuarioId === usuarioId && !h.primeiroMes
-            && h.rentabilidade !== null && h.rentabilidade !== undefined;
+    var todoHist = (db.historicoRentabilidade || []).filter(function (h) {
+        return h.usuarioId === usuarioId;
     });
-    hist.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
+    todoHist.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
+
+    // Separar mês de formação (origem) dos meses com rentabilidade calculada
+    var primMes = null;
+    var hist = [];
+    todoHist.forEach(function (h) {
+        if (h.primeiroMes) { primMes = h; }
+        else if (h.rentabilidade !== null && h.rentabilidade !== undefined) { hist.push(h); }
+    });
 
     // Monta lista de pontos: fechados + MTD (se houver e ainda não fechado)
     var pontos = hist.slice();
@@ -2841,6 +2854,22 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd) {
     var serieCdi = [];
     var acumCart = 1;
     var acumCdi = 1;
+
+    // Ponto de origem: ambas as linhas partem de 0% no mês do primeiro aporte
+    var origemLabel;
+    if (primMes) {
+        var op = primMes.mes.split('-');
+        origemLabel = MESES_ABR[parseInt(op[1], 10) - 1] + '/' + op[0].slice(2);
+    } else {
+        // Sem primeiroMes: derivar do mês anterior ao primeiro ponto calculado
+        var fp = pontos[0].mes.split('-');
+        var fpAno = parseInt(fp[0], 10), fpMes = parseInt(fp[1], 10) - 1;
+        if (fpMes < 1) { fpMes = 12; fpAno -= 1; }
+        origemLabel = MESES_ABR[fpMes - 1] + '/' + String(fpAno).slice(2);
+    }
+    labels.push(origemLabel);
+    serieCart.push(0);
+    serieCdi.push(0);
 
     pontos.forEach(function (h) {
         var partes = h.mes.split('-');
