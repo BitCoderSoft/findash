@@ -1345,6 +1345,11 @@ a.nav-item:hover { color: var(--color-text); }
 .table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); white-space: nowrap; }
 .table th, .table td { text-align: left; padding: 12px 16px; }
 .table thead th { font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-subtle); border-bottom: 1px solid var(--color-border); background: var(--color-neutral-bg); }
+.th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+.th-sort:hover { color: var(--color-text-base); }
+.th-sort-ativo { color: var(--color-primary); }
+.sort-icon { font-size: 10px; margin-left: 4px; opacity: 0.45; vertical-align: middle; }
+.sort-icon.ativo { opacity: 1; }
 .table tbody tr { border-bottom: 1px solid var(--color-border); transition: background-color 80ms; }
 .table tbody tr:last-child { border-bottom: none; }
 .table tbody tr:hover { background: var(--color-neutral-bg); }
@@ -4527,6 +4532,7 @@ var drawerState = null; // null = fechado/vazio; ou {open, editId, values, error
 var backupState = null;
 // [PROV v3] filtro de ativo na página de proventos. 'todos' = sem filtro.
 var _filtroProvento = 'todos';
+var _ordemPosicoes = { col: null, dir: 'asc' }; // col: 'quantidade'|'rentabilidade'|'saldo'|null
 
 /* =================================================================
    COMPONENTES DE TEMPLATE (HTML como string, mesma marcação dos templates
@@ -6163,10 +6169,35 @@ function renderPosicoes(user) {
                 '</tr></thead><tbody>' + rfLinhas + '</tbody></table></div></div></div></div>';
         }
 
+        function iconeSort(col) {
+            if (_ordemPosicoes.col !== col) return '<span class="sort-icon">↕</span>';
+            return '<span class="sort-icon ativo">' + (_ordemPosicoes.dir === 'asc' ? '↑' : '↓') + '</span>';
+        }
+        function thSort(label, col) {
+            var cls = _ordemPosicoes.col === col ? ' th-sort-ativo' : '';
+            return '<th class="th-sort' + cls + '" data-posicoes-sort="' + col + '">' + label + iconeSort(col) + '</th>';
+        }
+
         var gruposHTML;
         if (grupos.length || rfPosicoes.length) {
             var gruposHtmlPartes = grupos.map(function (grupo) {
-                var linhas = grupo.posicoes.map(function (p) {
+                var posicoesOrdenadas = grupo.posicoes.slice();
+                if (_ordemPosicoes.col) {
+                    posicoesOrdenadas.sort(function (a, b) {
+                        var va, vb;
+                        if (_ordemPosicoes.col === 'quantidade') {
+                            va = a.quantidade; vb = b.quantidade;
+                        } else if (_ordemPosicoes.col === 'rentabilidade') {
+                            va = a.rentabilidadePercentual !== null ? a.rentabilidadePercentual : -Infinity;
+                            vb = b.rentabilidadePercentual !== null ? b.rentabilidadePercentual : -Infinity;
+                        } else if (_ordemPosicoes.col === 'saldo') {
+                            va = temValorAtual(a) ? a.valorAtual : a.valorInvestido;
+                            vb = temValorAtual(b) ? b.valorAtual : b.valorInvestido;
+                        }
+                        return _ordemPosicoes.dir === 'asc' ? va - vb : vb - va;
+                    });
+                }
+                var linhas = posicoesOrdenadas.map(function (p) {
                     var logo;
                     if (p.cotacao && p.cotacao.logoUrl) {
                         var fallback = escapeHtml(p.ativo.ticker.slice(0, 2));
@@ -6223,7 +6254,7 @@ function renderPosicoes(user) {
                     '<span class="classe-group-seta" aria-hidden="true"></span></div>' +
                     '<div class="classe-group-corpo"><div class="classe-group-corpo-interno">' +
                     '<div class="classe-group-table-scroll"><table class="table table-cards"><thead><tr>' +
-                    '<th>Ativo</th><th>Quantidade</th><th>Preço médio</th><th>Preço atual</th><th>Rentabilidade</th><th>Total investido</th><th>Saldo atual</th>' +
+                    '<th>Ativo</th>' + thSort('Quantidade', 'quantidade') + '<th>Preço médio</th><th>Preço atual</th>' + thSort('Rentabilidade', 'rentabilidade') + '<th>Total investido</th>' + thSort('Saldo atual', 'saldo') +
                     (grupo.classe === 'CRIPTO' ? '' : '<th>Proventos</th>') + '<th>% da carteira</th>' +
                     '</tr></thead><tbody>' + linhas + '</tbody></table></div></div></div></div>';
             }).join('');
@@ -6659,6 +6690,7 @@ function navegar(rota) {
     if (rota !== '/backup') backupState = null; // [BACKUP v1]
     if (rota !== '/balanceamento') balanceamentoState = null; // [BAL v1]
     if (rota !== '/proventos') _filtroProvento = 'todos'; // [PROV v3]
+    if (rota !== '/posicoes') _ordemPosicoes = { col: null, dir: 'asc' };
     objetivoState = null; // [OBJ v1]
     try {
         if (location.hash !== '#' + rota) history.pushState(null, '', '#' + rota);
@@ -6981,6 +7013,25 @@ document.addEventListener('change', function (event) {
     else if (alvo.id === 'f_ticker') aplicarAutopreenchimento(alvo.form);
     else if (alvo.id === 'f_ticker_destino') atualizarInfoDestino(alvo.form);
     else if (alvo.id === 'f_subtipo') delete alvo.dataset.auto; // [PROV v1]
+});
+
+// Ordenação de colunas na página de posições
+document.addEventListener('click', function (event) {
+    var th = event.target.closest('[data-posicoes-sort]');
+    if (!th) return;
+    var col = th.dataset.posicoesSort;
+    if (_ordemPosicoes.col === col) {
+        _ordemPosicoes.dir = _ordemPosicoes.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        _ordemPosicoes.col = col;
+        _ordemPosicoes.dir = 'desc'; // primeira ativação: maior primeiro
+    }
+    var user = currentUser();
+    if (!user) return;
+    renderPosicoes(user).then(function (html) {
+        document.getElementById('app').innerHTML = html;
+        inicializarCharts();
+    });
 });
 
 // [PROV v3] filtro de ativo na página de proventos
