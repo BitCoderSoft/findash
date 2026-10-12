@@ -5927,7 +5927,7 @@ function renderDashboard(user) {
         var yocGeral = custoGerador > 0 ? (provTotal / custoGerador) * 100 : null;
         var proventosBloco = provTotal > 0
             ? '<span class="kpi-value up">R$ ' + fmt2(provTotal) + '</span>' +
-              '<span class="trend up">' + (yocGeral !== null ? 'YoC ' + fmt2(yocGeral) + '% s/ custo' : 'dividendos recebidos') + '</span>'
+              '<span class="trend up">' + (yocGeral !== null ? 'YoC ' + fmt2(yocGeral) + '%' : 'dividendos recebidos') + '</span>'
             : '<span class="kpi-value">R$ 0,00</span><span class="trend neutral">nenhum provento ainda</span>';
 
         // [UI v5] Resultado vs custo (estilo Smartfolio): inclui proventos de bolsa no numerador.
@@ -5935,12 +5935,21 @@ function renderDashboard(user) {
         var resultadoVsCusto = kpis.valorInvestido > 0
             ? ((lucroTotal + provTotal) / kpis.valorInvestido) * 100
             : null;
-        var lucroClasse = temLucroTotal ? (lucroTotal >= 0 ? 'up' : 'down') : '';
+        var lucroComDiv = lucroTotal + provTotal;
+        var lucroPctMercado = kpis.valorInvestido > 0 ? (lucroTotal / kpis.valorInvestido * 100) : null;
+        var clsL = lucroTotal >= 0 ? 'up' : 'down';
+        var subLabel = 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--color-text-subtle);margin-bottom:1px;';
         var lucroBloco = temLucroTotal
-            ? '<span class="kpi-value ' + (lucroTotal >= 0 ? 'up' : 'down') + '">R$ ' + fmt2(lucroTotal) + '</span>' +
-              (resultadoVsCusto !== null
-                  ? '<span class="trend ' + (lucroTotal >= 0 ? 'up' : 'down') + '">' + (lucroTotal >= 0 ? '▲' : '▼') + ' ' + fmt2(Math.abs(resultadoVsCusto)) + '% · ' + (lucroTotal >= 0 ? 'acima do custo' : 'abaixo do custo') + '</span>'
-                  : '<span class="trend ' + (lucroTotal >= 0 ? 'up' : 'down') + '">' + (lucroTotal >= 0 ? 'acima do custo' : 'abaixo do custo') + '</span>')
+            ? '<p style="' + subLabel + 'margin-top:6px;">Lucro total</p>' +
+              '<div style="display:flex;align-items:baseline;gap:5px;margin-bottom:1px;">' +
+                '<span class="kpi-value ' + (lucroComDiv >= 0 ? 'up' : 'down') + '" style="font-size:1.2rem;">R$ ' + fmt2(lucroComDiv) + '</span>' +
+              '</div>' +
+              (provTotal > 0 ? '<span style="font-size:10px;color:var(--color-text-muted);display:block;margin-bottom:8px;">incluindo dividendos</span>' : '<span style="display:block;margin-bottom:8px;"></span>') +
+              '<p style="' + subLabel + '">Lucro/Prejuízo</p>' +
+              '<div style="display:flex;align-items:baseline;gap:5px;">' +
+                '<span class="kpi-value ' + clsL + '" style="font-size:1.2rem;">R$ ' + fmt2(lucroTotal) + '</span>' +
+                (lucroPctMercado !== null ? '<span class="trend ' + clsL + '">(' + (lucroTotal >= 0 ? '+' : '') + fmt2(lucroPctMercado) + '%)</span>' : '') +
+              '</div>'
             : '<span class="kpi-value">—</span><span class="trend neutral">requer cotação de mercado</span>';
 
         // MTD + acumulado temporal (mesma base do gráfico de linhas)
