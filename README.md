@@ -13,13 +13,13 @@ navegador (localStorage).
 **Sem instalação.** Basta abrir o arquivo no navegador:
 
 ```
-Finder → duplo clique em dash-finance.html
+Finder → duplo clique em index.html
 ```
 
 ou via terminal:
 
 ```bash
-open dash-finance.html
+open index.html
 ```
 
 Não há servidor, Python, Node ou qualquer dependência para instalar.
@@ -35,7 +35,7 @@ Não há servidor, Python, Node ou qualquer dependência para instalar.
 
 | Página | O que faz |
 |---|---|
-| **Resumo** | KPIs de patrimônio, gráfico de evolução mensal, donut de alocação, rankings de mercado |
+| **Resumo** | KPIs de patrimônio, gráfico de evolução mensal, donut de alocação, rentabilidade vs CDI (heatmap + linha acumulada), rankings de mercado |
 | **Posições** | Posição por ativo com preço médio, rentabilidade real e destaques da carteira |
 | **Proventos** | Histórico de dividendos/JCP/rendimentos com YoC e retorno total |
 | **Lançamentos** | CRUD de todas as operações via drawer lateral |
@@ -46,7 +46,7 @@ Não há servidor, Python, Node ou qualquer dependência para instalar.
 
 ## Token brapi
 
-O arquivo contém `var BRAPI_TOKEN` próximo à linha 1792. Substitua pelo
+O arquivo contém `var BRAPI_TOKEN` próximo à linha 1823. Substitua pelo
 seu token (obtido em [brapi.dev](https://brapi.dev)) para habilitar as
 cotações de B3. Sem token, cotações ficam indisponíveis mas o resto do app
 funciona normalmente.
@@ -56,4 +56,5 @@ funciona normalmente.
 ## Documentação técnica
 
 Ver [AGENTS.md](AGENTS.md) para contexto completo: arquitetura, modelo de
-dados, motor de carteira, convenções de manutenção, débitos técnicos e roadmap.
+dados, motor de carteira, rentabilidade mensal (Modified Dietz), convenções
+de manutenção, débitos técnicos e roadmap.
