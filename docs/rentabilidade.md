@@ -178,7 +178,7 @@ O campo `signed` (propriedade extra no Dataset 2) guarda `saldo - custo` assinad
 
 O seletor `noStack: true` na resposta de `dadosChartJsEvolucao` desativa `stacked` nas escalas X e Y, garantindo que os dois datasets se sobreponham em vez de empilhar.
 
-`saldoPorMes` é construído em `renderDashboard` com `patrimonioFim` de `historicoRentabilidade` + valor ao vivo para o mês corrente.
+`saldoPorMes` é construído em `renderDashboard` via `patrimonioNaData(user.id, anoMes, loadStockHist())` para cada mês passado, e `kpis.saldoAtual` para o mês corrente. **Não** usa `historicoRentabilidade[].patrimonioFim` — esse campo é um snapshot congelado no momento do fechamento e fica desatualizado se o usuário adicionar transações retroativas (ex.: aporte de Renda Fixa em mês já fechado). O cálculo dinâmico inclui sempre o estado atual das transações e os preços mensais do `stockHist`.
 
 ### Tooltip unificado
 
