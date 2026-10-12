@@ -238,15 +238,22 @@ Rentabilidade = Numerador / Denominador × 100
 
 ### Fonte de preços históricos
 
-| Classe | Fonte | Cache |
+| Classe | Fonte | Persistência |
 |---|---|---|
-| Ação/FII/BDR | brapi `range=2y&interval=1mo` (HTTP 200 confirmado) | 24h em `HIST_MENSAL_CACHE_KEY` |
-| Cripto | Binance klines `interval=1M&limit=25` | 24h em `HIST_MENSAL_CACHE_KEY` |
+| Ação/FII/BDR | brapi `startDate/endDate&interval=1d` em chunks de 90 dias | `STOCK_HIST_KEY` (localStorage, permanente) |
+| Cripto | Binance klines `interval=1M`, limit dinâmico desde `dataInicio` | em memória por sessão |
 | Renda Fixa | Custo contábil (sem API) | — |
 
-O campo `date` da brapi retorna timestamp Unix em **segundos** (verificado em
-11/10/2026). `normalizarDataBrapi(ts)` converte para `"YYYY-MM"`. O `close` do
-candle mensal é o fechamento do último dia útil daquele mês.
+**`[HIST v1]`** — Plano free brapi suporta apenas `interval=1d`; `range=2y` e `interval=1mo`
+retornam erro. A solução usa `startDate/endDate` com janelas ≤ 90 dias (chunks gerados por
+`gerarChunks()`). Meses fechados gravados em `STOCK_HIST_KEY` nunca são sobrescritos;
+só o mês corrente atualiza a cada abertura.
+
+O campo `date` da brapi retorna timestamp Unix em **segundos**. `normalizarDataBrapi(ts)`
+converte para `"YYYY-MM"`. Candles diários chegam em ordem **decrescente** — `_agregarMensalDescendente`
+toma o primeiro candle por mês (= fechamento mais recente do mês).
+
+Ver `docs/rentabilidade.md` para documentação detalhada da estratégia.
 
 ### MTD (mês corrente em andamento)
 
@@ -264,10 +271,12 @@ acumulado + heatmap) sem re-renderizar a página.
 
 ### Migração de versão
 
-Flag `db.historicoRentabilidadeVersao`. Versão atual: **4**. Ao subir para uma
+Flag `db.historicoRentabilidadeVersao`. Versão atual: **6**. Ao subir para uma
 versão nova, apagar `historicoRentabilidade` e incrementar o número — o
 fechamento automático recalcula tudo no próximo boot. Nunca recalcular meses já
 fechados automaticamente fora da migração de versão.
+Histórico de versões: 4 = Modified Dietz base; 5 = preços reais via chunks B3;
+6 = primeiro mês com rentabilidade real (PI=0) + gráfico acumulado estilo Investidor10.
 
 ### Gráfico de linha acumulada
 
@@ -287,22 +296,16 @@ O retorno acumulado usa `ibovMapa[mes] / ibovMapa[mesAnterior] - 1` para cada
 ponto. Se o mapa não tiver o par de meses necessário, aquele ponto fica em 0
 (não quebra a série).
 
-**IBOV — fonte e persistência** (`buscarPrecosMensaisIBOV`):
+**IBOV — fonte e persistência** (`buscarPrecosMensaisIBOV(dataInicio)`):
 
-- O plano free da brapi suporta apenas `interval=1d`; `interval=1mo` retorna 400.
-- A função pede `range=3mo&interval=1d` (diário, dentro do plano free) e agrega
-  para mensal tomando o **último fechamento de cada mês** — basta iterar os
-  candles em ordem cronológica e sobrescrever `novos[anoMes]`, pois o último
-  vence.
+- **`[HIST v1]`** Mesma arquitetura de chunks de 90 dias que `buscarPrecosMensaisB3`.
+  Reutiliza `_fetchChunksB3('%5EBVSP', ...)` internamente.
+- `dataInicio`: data do lançamento mais antigo de qualquer ativo de bolsa do usuário
+  (passada por `renderDashboard` e `fecharMesAnteriorSeNecessario`). Garante cobertura
+  total do histórico da carteira.
 - O histórico acumulado fica em `IBOV_HIST_KEY = 'DASH_FINANCE_IBOV_HIST_V1'`
-  no `armazem`. A cada abertura: meses já fechados são preservados (nunca
-  sobrescritos); o mês corrente (parcial) sempre atualiza. Assim o histórico
-  cresce automaticamente mês a mês sem nunca precisar de mais do que 3 meses
-  de dados por chamada.
-- Token obrigatório na URL (`&token=`) e no header `Authorization: Bearer` —
-  o endpoint de índices da brapi exige ambos.
-- Helpers: `loadIBOVHist()` / `saveIBOVHist(mapa)` — leitura/gravação via
-  `armazem`.
+  no `armazem`. Meses fechados nunca são sobrescritos; mês corrente atualiza sempre.
+- Helpers: `loadIBOVHist()` / `saveIBOVHist(mapa)` — leitura/gravação via `armazem`.
 - `_ibovMapaCache` — cache de sessão em memória (evita refetch na mesma abertura).
 - `renderDashboard` passa `ibovMapa` para `secaoRentabilidadeHTML`; se o mapa
   vier vazio (falha de rede, primeira abertura sem histórico), a linha IBOV
@@ -350,9 +353,10 @@ Chaves do sistema:
 | `DASH_FINANCE_DB_V1` | JSON principal (usuários, ativos, transações) |
 | `DASH_FINANCE_SESSION_V1` | Sessão ativa `{ userId }` |
 | `DASH_FINANCE_QUOTE_CACHE_V1` | Cache de cotações B3 |
-| `DASH_FINANCE_HIST_CACHE_V1` | Cache de histórico de preço |
+| `DASH_FINANCE_HIST_CACHE_V1` | Cache de histórico de preço (detalhe do ativo) |
 | `DASH_FINANCE_RANKING_CACHE_V1` | Cache de rankings de mercado |
 | `DASH_FINANCE_IBOV_HIST_V1` | Histórico acumulado mensal do IBOV (`{ "YYYY-MM": close }`) |
+| `DASH_FINANCE_STOCK_HIST_V1` | Histórico acumulado mensal por ticker B3 (`{ "ITSA4": { "YYYY-MM": close } }`) |
 
 ## Design system (CSS)
 
@@ -428,6 +432,14 @@ Princípios — manter consistência em telas novas:
       carteira — export/import é o workaround atual).
 18. **Pendente**: modo escuro.
 19. ✅ Comparação com índices (CDI, IBOV) no gráfico acumulado de rentabilidade.
+20. ✅ Histórico de preços mensais via chunks de 90 dias (`[HIST v1]`) — corrige
+      rentabilidade 0% em carteiras antigas; estratégia `startDate/endDate` no
+      plano free brapi; fechamentos acumulados em localStorage permanente;
+      backup v2 exporta/importa `stockHist` e `ibovHist`.
+21. ✅ Primeiro mês com rentabilidade real via Modified Dietz (PI=0); gráfico
+      acumulado no estilo Investidor10 (origin = primeiro mês real, sem ponto
+      sintético pré-carteira); gráfico de barras evolutivo a valor de mercado
+      mês a mês com split custo/ganho por barra.
 
 ## Preferências de trabalho
 

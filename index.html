@@ -1845,7 +1845,8 @@ var CDI_CACHE_KEY = 'DASH_FINANCE_CDI_CACHE_V1';
 // [RENT v2] cache de preços mensais históricos por ticker (24h — dado imutável)
 var HIST_MENSAL_CACHE_KEY = 'DASH_FINANCE_HIST_MENSAL_V1';
 var HIST_MENSAL_TTL_MS = 24 * 60 * 60 * 1000;
-var IBOV_HIST_KEY = 'DASH_FINANCE_IBOV_HIST_V1'; // histórico acumulado mensal do IBOV (cresce a cada abertura)
+var IBOV_HIST_KEY  = 'DASH_FINANCE_IBOV_HIST_V1';  // histórico acumulado mensal do IBOV
+var STOCK_HIST_KEY = 'DASH_FINANCE_STOCK_HIST_V1'; // histórico acumulado mensal por ticker B3 { "ITSA4": { "YYYY-MM": close } }
 // BCB SGS série 12 = CDI over diário (API pública, sem autenticação)
 var BCB_CDI_LATEST_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json';
 var BCB_CDI_PERIODO_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json';
@@ -2607,7 +2608,7 @@ function evolucaoMensal(usuarioId) {
     while (ano < ultimo.ano || (ano === ultimo.ano && mes <= ultimo.mes)) {
         var chaveAtual = ano + '-' + mes;
         acumulado += deltasPorMes[chaveAtual] || 0;
-        resultado.push({ label: MESES_PT[mes - 1] + '/' + String(ano).slice(2), valor: acumulado });
+        resultado.push({ label: MESES_PT[mes - 1] + '/' + String(ano).slice(2), valor: acumulado, anoMes: ano + '-' + (mes < 10 ? '0' : '') + mes });
         mes += 1;
         if (mes > 12) { mes = 1; ano += 1; }
     }
@@ -2732,58 +2733,81 @@ function montarGraficoEvolucao(evolucao, opts) {
 // evolucao: [{label, valor}] — custo acumulado mês a mês
 // opts: { lucroPrejuizo, saldoMercado } — mesmo contrato de montarGraficoEvolucao
 // Retorna null se vazio, ou { labels, datasets, cor } para uso direto no Chart.js
+// [HIST v1] saldoPorMes opcional: { "YYYY-MM": valorMercado } — aplica ganho/perda por barra.
+// Custo = verde forte, sempre na altura real. Lucro = verde claro acima. Prejuízo = vermelho na base.
 function dadosChartJsEvolucao(evolucao, opts) {
     if (!evolucao.length) return null;
     opts = opts || {};
+    var saldoPorMes = opts.saldoPorMes || {};
 
-    var labels  = evolucao.map(function (e) { return e.label; });
+    var labels = evolucao.map(function (e) { return e.label; });
     var custos  = evolucao.map(function (e) { return e.valor; });
+    var temMercado = evolucao.some(function (e) { return saldoPorMes[e.anoMes] != null; });
 
-    // Na última barra, se houver lucro/prejuízo passamos a camada extra
-    var lucro = opts.lucroPrejuizo != null ? opts.lucroPrejuizo : 0;
-
-    // dataset base: custo aportado (cor primária)
-    var dsCusto = {
+    // Dataset 1: custo aportado — verde forte, altura imutável
+    var datasets = [{
         label: 'Custo aportado',
         data: custos,
-        backgroundColor: 'rgba(32, 28, 26, 0.85)',
+        backgroundColor: 'rgba(22, 101, 52, 0.88)',
         borderRadius: 4,
         borderSkipped: false,
-        stack: 'bar',
-    };
+        order: 3,
+    }];
 
-    var datasets = [dsCusto];
+    if (temMercado) {
+        // Dataset 2: verde claro flutuante [custo → saldo] — meses com lucro
+        var lucroData = evolucao.map(function (e) {
+            var custo = e.valor;
+            var saldo = saldoPorMes[e.anoMes] != null ? saldoPorMes[e.anoMes] : custo;
+            return (saldo - custo) > 0.01 ? [custo, saldo] : null;
+        });
+        var lucroAmounts = evolucao.map(function (e) {
+            var custo = e.valor;
+            var saldo = saldoPorMes[e.anoMes] != null ? saldoPorMes[e.anoMes] : custo;
+            return Math.max(0, saldo - custo);
+        });
 
-    if (Math.abs(lucro) > 0.01) {
-        // vetor de zeros; só a última posição tem o valor
-        var valoresExtra = custos.map(function () { return 0; });
+        // Dataset 3: vermelho flutuante [0 → perda] na base — meses com prejuízo
+        var prejData = evolucao.map(function (e) {
+            var custo = e.valor;
+            var saldo = saldoPorMes[e.anoMes] != null ? saldoPorMes[e.anoMes] : custo;
+            var perda = custo - saldo;
+            return perda > 0.01 ? [0, perda] : null;
+        });
+        var prejAmounts = evolucao.map(function (e) {
+            var custo = e.valor;
+            var saldo = saldoPorMes[e.anoMes] != null ? saldoPorMes[e.anoMes] : custo;
+            return Math.max(0, custo - saldo);
+        });
 
-        if (lucro > 0) {
-            valoresExtra[valoresExtra.length - 1] = lucro;
+        var temLucro = lucroData.some(function (d) { return d !== null; });
+        var temPrej  = prejData.some(function (d) { return d !== null; });
+
+        if (temLucro) {
             datasets.push({
-                label: 'Ganho de capital',
-                data: valoresExtra,
+                label: 'Lucro',
+                data: lucroData,
                 backgroundColor: 'rgba(74, 222, 128, 0.85)',
                 borderRadius: 4,
                 borderSkipped: false,
-                stack: 'bar',
+                amounts: lucroAmounts,
+                order: 1,
             });
-        } else {
-            // prejuízo: reduz a barra de custo visualmente mostrando a perda
-            // como camada vermelha no topo (até o custo) — mesmo princípio do SVG
-            valoresExtra[valoresExtra.length - 1] = Math.abs(lucro);
+        }
+        if (temPrej) {
             datasets.push({
-                label: 'Prejuízo atual',
-                data: valoresExtra,
-                backgroundColor: 'rgba(248, 113, 113, 0.7)',
+                label: 'Prejuízo',
+                data: prejData,
+                backgroundColor: 'rgba(248, 113, 113, 0.85)',
                 borderRadius: 4,
                 borderSkipped: false,
-                stack: 'prejuizo', // stack separado: aparece sobreposto ao custo
+                amounts: prejAmounts,
+                order: 2,
             });
         }
     }
 
-    return { labels: labels, datasets: datasets, temExtra: Math.abs(lucro) > 0.01, lucro: lucro };
+    return { labels: labels, datasets: datasets, noStack: true };
 }
 
 // Mesmo para proventos — sem camada extra, cor roxa
@@ -2825,7 +2849,7 @@ function htmlChartJs(id, dados, formatoY, altura, tipo) {
 
 // [RENT v4] Série acumulada carteira × CDI a partir do historicoRentabilidade.
 // Inclui MTD (mês corrente parcial) se fornecido. Todas as linhas partem de 0%
-// no mês de formação (primeiroMes). ibovMapa opcional: { "YYYY-MM": price }.
+// O primeiro mês da carteira é a origem (0%); seu retorno entra no acumulado dos meses seguintes.
 // Retorna null se não houver nenhum ponto válido.
 function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa) {
     var db = loadDB();
@@ -2834,12 +2858,10 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa) {
     });
     todoHist.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
 
-    // Separar mês de formação (origem) dos meses com rentabilidade calculada
-    var primMes = null;
+    // Todos os meses com rentabilidade calculada (inclusive o primeiro — sem "formação")
     var hist = [];
     todoHist.forEach(function (h) {
-        if (h.primeiroMes) { primMes = h; }
-        else if (h.rentabilidade !== null && h.rentabilidade !== undefined) { hist.push(h); }
+        if (h.rentabilidade !== null && h.rentabilidade !== undefined) { hist.push(h); }
     });
 
     // Monta lista de pontos: fechados + MTD (se houver e ainda não fechado)
@@ -2860,41 +2882,37 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa) {
     var acumIbov = 1;
     var temIbov = ibovMapa && Object.keys(ibovMapa).length > 0;
 
-    // Ponto de origem: todas as linhas partem de 0% no mês do primeiro aporte
-    var origemLabel;
-    if (primMes) {
-        var op = primMes.mes.split('-');
-        origemLabel = MESES_ABR[parseInt(op[1], 10) - 1] + '/' + op[0].slice(2);
-    } else {
-        // Sem primeiroMes: derivar do mês anterior ao primeiro ponto calculado
-        var fp = pontos[0].mes.split('-');
-        var fpAno = parseInt(fp[0], 10), fpMes = parseInt(fp[1], 10) - 1;
-        if (fpMes < 1) { fpMes = 12; fpAno -= 1; }
-        origemLabel = MESES_ABR[fpMes - 1] + '/' + String(fpAno).slice(2);
-    }
+    // Origem = primeiro mês real da carteira a 0% (estilo Investidor10).
+    // O retorno do primeiro mês entra no acumulado mas não gera ponto visual separado:
+    // o segundo mês já mostra o acumulado que inclui o primeiro.
+    var fp = pontos[0].mes.split('-');
+    var origemLabel = MESES_ABR[parseInt(fp[1], 10) - 1] + '/' + fp[0].slice(2);
     labels.push(origemLabel);
     serieCart.push(0);
     serieCdi.push(0);
     if (temIbov) serieIbov.push(0);
 
-    pontos.forEach(function (h) {
-        var partes = h.mes.split('-');
-        var label = MESES_ABR[parseInt(partes[1], 10) - 1] + '/' + partes[0].slice(2);
-        if (h.parcial) label += '*';
-        labels.push(label);
+    pontos.forEach(function (h, idx) {
+        // Acumula o retorno do mês (inclusive do primeiro)
         acumCart *= (1 + Number(h.rentabilidade) / 100);
         var cdi = (h.cdi !== null && h.cdi !== undefined) ? Number(h.cdi) : 0;
         acumCdi *= (1 + cdi / 100);
-        serieCart.push(+( (acumCart - 1) * 100 ).toFixed(4));
-        serieCdi.push(+( (acumCdi - 1) * 100 ).toFixed(4));
         if (temIbov) {
             var prevM = _mesAnterior(h.mes);
             var ibovFim = ibovMapa[h.mes];
             var ibovIni = ibovMapa[prevM];
             var ibovRet = (ibovFim && ibovIni) ? (ibovFim / ibovIni - 1) : 0;
             acumIbov *= (1 + ibovRet);
-            serieIbov.push(+( (acumIbov - 1) * 100 ).toFixed(4));
         }
+        // O primeiro mês É a origem (0%) — seu retorno só aparece no ponto seguinte
+        if (idx === 0) return;
+        var partes = h.mes.split('-');
+        var label = MESES_ABR[parseInt(partes[1], 10) - 1] + '/' + partes[0].slice(2);
+        if (h.parcial) label += '*';
+        labels.push(label);
+        serieCart.push(+( (acumCart - 1) * 100 ).toFixed(4));
+        serieCdi.push(+( (acumCdi - 1) * 100 ).toFixed(4));
+        if (temIbov) serieIbov.push(+( (acumIbov - 1) * 100 ).toFixed(4));
     });
 
     var datasets = [
@@ -2963,7 +2981,8 @@ function inicializarCharts() {
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: { duration: 300 },
-                interaction: isLine ? { mode: 'index', intersect: false } : undefined,
+                grouped: !item.dados.noStack,
+                interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: {
                         display: item.dados.datasets.length > 1,
@@ -2978,22 +2997,33 @@ function inicializarCharts() {
                     },
                     tooltip: {
                         callbacks: {
+                            filter: function (item) {
+                                return item.raw !== null && item.raw !== undefined;
+                            },
                             label: function (ctx) {
-                                var y = isLine ? ctx.parsed.y : ctx.parsed.y;
-                                return ' ' + ctx.dataset.label + ': ' + fmt(y);
+                                if (ctx.raw === null || ctx.raw === undefined) return null;
+                                // Barras flutuantes de Lucro/Prejuízo com metadata de valor absoluto
+                                if (ctx.dataset.amounts !== undefined) {
+                                    var amt = ctx.dataset.amounts[ctx.dataIndex];
+                                    if (!amt || amt < 0.01) return null;
+                                    var sinal = ctx.dataset.label === 'Lucro' ? '+' : '−';
+                                    var valor = amt.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                    return ' ' + ctx.dataset.label + ': R$ ' + sinal + valor;
+                                }
+                                return ' ' + ctx.dataset.label + ': ' + fmt(ctx.parsed.y);
                             },
                         },
                     },
                 },
                 scales: {
                     x: {
-                        stacked: !isLine,
+                        stacked: !isLine && !item.dados.noStack,
                         grid: { display: false },
                         border: { display: false },
                         ticks: { color: '#94a3b8', font: { size: 10 } },
                     },
                     y: {
-                        stacked: !isLine,
+                        stacked: !isLine && !item.dados.noStack,
                         grid: { color: '#b0b7c3', lineWidth: 1, borderDash: [5, 3] },
                         border: { display: false, dash: [5, 3] },
                         ticks: {
@@ -3861,42 +3891,49 @@ function buscarHistoricoDoAtivo(ticker) {
    Usados por patrimonioNaData() para reconstruir o valor de mercado
    da carteira no último dia de cada mês fechado.
 
-   Brapi confirmado: range=2y&interval=1mo → HTTP 200 no plano atual.
-   date = timestamp em segundos = primeiro dia útil do mês.
-   close = fechamento do ÚLTIMO dia útil do mês (é o que precisamos).
+   Plano free brapi: interval=1d apenas; 90 dias por chunk via startDate/endDate.
+   [HIST v1] Closes mensais acumulados em STOCK_HIST_KEY (localStorage).
    ================================================================= */
 
-// B3: uma chamada range=2y/1mo por ticker → mapa { "2026-09": 49.12, ... }
-function buscarPrecosMensaisB3(ticker) {
-    var chave = 'B3:' + ticker;
-    var cached = getCachedHistoricoMensal(chave);
-    if (cached) return Promise.resolve(cached);
+// [HIST v1] buscarPrecosMensaisB3 — usa startDate/endDate em chunks de 90 dias (plano free brapi).
+// dataInicio: 'YYYY-MM-DD' do primeiro lançamento do ticker (opcional; default = 1 ano atrás).
+// Acumula fechamentos mensais em STOCK_HIST_KEY; meses fechados nunca são sobrescritos.
+function buscarPrecosMensaisB3(ticker, dataInicio) {
+    var hist  = loadStockHist();
+    var mapa  = hist[ticker] || {};
+    var hoje  = hojeISO();
+    var mesAtual = hoje.slice(0, 7);
 
-    var url = BRAPI_HISTORICAL_URL + '?symbols=' + encodeURIComponent(ticker) + '&range=2y&interval=1mo';
-    return brapiFetch(url, { headers: { Authorization: 'Bearer ' + BRAPI_TOKEN } })
-        .then(function (resp) { return resp.ok ? resp.json() : null; })
-        .then(function (payload) {
-            if (!payload) return {};
-            var item = (payload.results || [])[0];
-            var lista = (item && item.data && item.data.historicalDataPrice) || [];
-            var mapa = {};
-            lista.forEach(function (p) {
-                var am = normalizarDataBrapi(p.date);
-                if (am && p.close) mapa[am] = p.close;
-            });
-            setCachedHistoricoMensal(chave, mapa);
-            return mapa;
-        })
-        .catch(function () { return {}; });
+    if (!dataInicio) {
+        var d1a = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+        dataInicio = d1a.toISOString().slice(0, 10);
+    }
+
+    var primMesNec   = dataInicio.slice(0, 7);
+    var mesesCobr    = Object.keys(mapa).sort();
+    var priMesCobr   = mesesCobr[0] || null;
+    var coberto      = priMesCobr && priMesCobr <= primMesNec && mapa[mesAtual];
+    if (coberto) return Promise.resolve(mapa);
+
+    // Define fetchInicio: se histórico já cobre desde dataInicio, só atualiza mês atual
+    var fetchInicio = dataInicio;
+    if (priMesCobr && priMesCobr <= primMesNec && !mapa[mesAtual]) {
+        var d90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        fetchInicio = d90.toISOString().slice(0, 10);
+    }
+    var chunks = gerarChunks(fetchInicio, hoje);
+
+    return _fetchChunksB3(encodeURIComponent(ticker), chunks, mapa, mesAtual).then(function () {
+        hist[ticker] = mapa;
+        saveStockHist(hist);
+        return mapa;
+    });
 }
 
 // Cripto: Binance klines mensais (interval=1M, limit=25). Mesmo mecanismo
 // de par BRL/USDT×USDTBRL de buscarHistoricoCripto, mas granularidade mensal.
-function buscarPrecosMensaisCripto(ticker) {
-    var chave = 'CRIPTO:' + ticker;
-    var cached = getCachedHistoricoMensal(chave);
-    if (cached) return Promise.resolve(cached);
-
+// [HIST v1] dataInicio: 'YYYY-MM-DD' do primeiro lançamento desse ticker (calcula limit dinamicamente).
+function buscarPrecosMensaisCripto(ticker, dataInicio) {
     var token = tokenCripto(ticker);
     return resolverParesCripto([token]).then(function (pares) {
         var r = pares[token];
@@ -3906,7 +3943,14 @@ function buscarPrecosMensaisCripto(ticker) {
         var viaUsdt = !r.brl && !!r.usdt;
         if (!par) return {};
 
-        var base = '/api/v3/klines?interval=1M&limit=25&symbol=';
+        var limit = 25;
+        if (dataInicio) {
+            var msDesde = Date.now() - new Date(dataInicio + 'T12:00:00Z').getTime();
+            var mesesDesde = Math.ceil(msDesde / (30 * 24 * 60 * 60 * 1000));
+            limit = Math.min(1000, mesesDesde + 6);
+        }
+
+        var base = '/api/v3/klines?interval=1M&limit=' + limit + '&symbol=';
         var pedidos = [binanceGet(base + par)];
         if (viaUsdt) pedidos.push(binanceGet(base + 'USDTBRL'));
 
@@ -3929,61 +3973,122 @@ function buscarPrecosMensaisCripto(ticker) {
                 if (am && close > 0) mapa[am] = close;
             });
 
-            setCachedHistoricoMensal(chave, mapa);
             return mapa;
         });
     }).catch(function () { return {}; });
 }
 
-// Roteador: decide a fonte pelo campo classe do ativo (mesmo padrão de buscarCotacoes)
-function buscarPrecosMensais(ticker, classe) {
-    if (classe === 'CRIPTO') return buscarPrecosMensaisCripto(ticker);
+// Roteador: decide a fonte pelo campo classe do ativo. dataInicio: 'YYYY-MM-DD' do primeiro lançamento.
+function buscarPrecosMensais(ticker, classe, dataInicio) {
+    if (classe === 'CRIPTO') return buscarPrecosMensaisCripto(ticker, dataInicio);
     if (classe === 'RENDA_FIXA') return Promise.resolve({});
-    return buscarPrecosMensaisB3(ticker);
+    return buscarPrecosMensaisB3(ticker, dataInicio);
 }
 
-// [IBOV v1] IBOV mensal acumulado localmente.
-// O plano brapi free suporta até range=3mo — então buscamos só os últimos 3 meses
-// a cada abertura e mesclamos com o histórico já salvo em localStorage (IBOV_HIST_KEY).
-// Com o uso regular, o histórico cresce sozinho sem nunca pedir mais do que o plano permite.
+// [HIST v1] IBOV mensal acumulado localmente via chunks de 90 dias (mesma estratégia que B3).
 function loadIBOVHist() {
     try { var r = armazem.get(IBOV_HIST_KEY); return r ? JSON.parse(r) : {}; } catch (e) { return {}; }
 }
 function saveIBOVHist(mapa) {
     try { armazem.set(IBOV_HIST_KEY, JSON.stringify(mapa)); } catch (e) {}
 }
+function loadStockHist() {
+    try { var r = armazem.get(STOCK_HIST_KEY); return r ? JSON.parse(r) : {}; } catch (e) { return {}; }
+}
+function saveStockHist(mapa) {
+    try { armazem.set(STOCK_HIST_KEY, JSON.stringify(mapa)); } catch (e) {}
+}
 
-function buscarPrecosMensaisIBOV() {
-    if (_ibovMapaCache && Object.keys(_ibovMapaCache).length) return Promise.resolve(_ibovMapaCache);
-    var historico = loadIBOVHist();
-    // Plano free: só interval=1d disponível. Buscamos diários 3mo e pegamos o último close por mês.
-    var url = BRAPI_HISTORICAL_URL + '?symbols=%5EBVSP&range=3mo&interval=1d&token=' + BRAPI_TOKEN;
-    return brapiFetch(url, { headers: { Authorization: 'Bearer ' + BRAPI_TOKEN } })
-        .then(function (resp) { return resp && resp.ok ? resp.json() : null; })
-        .then(function (payload) {
-            var novos = {};
-            if (payload) {
-                var item = (payload.results || [])[0];
-                var lista = (item && item.data && item.data.historicalDataPrice) || [];
-                lista.forEach(function (p) {
-                    var am = normalizarDataBrapi(p.date);
-                    if (am && p.close) novos[am] = p.close;
-                });
-            }
-            // Mescla: preserva histórico antigo; adiciona/atualiza meses novos
-            // (mês corrente pode ser parcial — sempre atualiza; meses fechados nunca retrocedem)
-            var mesAtual = hojeISO().slice(0, 7);
-            Object.keys(novos).forEach(function (am) {
-                if (am === mesAtual || !historico[am]) historico[am] = novos[am];
-            });
-            if (Object.keys(historico).length) saveIBOVHist(historico);
-            _ibovMapaCache = historico;
-            return historico;
-        })
-        .catch(function () {
-            _ibovMapaCache = historico;
-            return historico;
+// Divide [dataInicio, dataFim] em janelas de até 90 dias (limite do plano free brapi).
+// Retorna array de { s: 'YYYY-MM-DD', e: 'YYYY-MM-DD' }.
+function gerarChunks(dataInicio, dataFim) {
+    var chunks = [];
+    var cur = new Date(dataInicio + 'T12:00:00Z');
+    var fim = new Date(dataFim   + 'T12:00:00Z');
+    while (cur < fim) {
+        var prox = new Date(cur.getTime() + 90 * 24 * 60 * 60 * 1000);
+        if (prox > fim) prox = new Date(fim);
+        chunks.push({ s: cur.toISOString().slice(0, 10), e: prox.toISOString().slice(0, 10) });
+        cur = prox;
+    }
+    return chunks;
+}
+
+// Agrega lista de candles diários (ordem DECRESCENTE — mais recente primeiro) em fechamentos mensais.
+// Para cada mês: primeiro candle encontrado = fechamento do último pregão daquele mês = close correto.
+// Meses fechados já no mapa nunca são sobrescritos; mês corrente sempre atualiza.
+function _agregarMensalDescendente(lista, mapa, mesAtual) {
+    var vistos = {};
+    lista.forEach(function (p) {
+        var am = normalizarDataBrapi(p.date);
+        if (!am || !p.close || vistos[am]) return;
+        vistos[am] = true;
+        if (am === mesAtual || !mapa[am]) mapa[am] = p.close;
+    });
+}
+
+// Busca chunks via brapiFetch (fila serial) e mescla em mapa.
+// sym: símbolo brapi (pode ser encodeURIComponent ou já encoded, ex: '%5EBVSP').
+function _fetchChunksB3(sym, chunks, mapa, mesAtual) {
+    var cadeia = Promise.resolve();
+    chunks.forEach(function (chunk) {
+        cadeia = cadeia.then(function () {
+            var url = BRAPI_HISTORICAL_URL
+                + '?symbols=' + sym
+                + '&startDate=' + chunk.s
+                + '&endDate='   + chunk.e
+                + '&interval=1d&token=' + BRAPI_TOKEN;
+            return brapiFetch(url, { headers: { Authorization: 'Bearer ' + BRAPI_TOKEN } })
+                .then(function (resp) { return resp && resp.ok ? resp.json() : null; })
+                .then(function (payload) {
+                    if (!payload || payload.error) return;
+                    var item = (payload.results || [])[0];
+                    var lista = (item && item.data && item.data.historicalDataPrice) || [];
+                    _agregarMensalDescendente(lista, mapa, mesAtual);
+                })
+                .catch(function () {});
         });
+    });
+    return cadeia;
+}
+
+// [HIST v1] buscarPrecosMensaisIBOV — mesma arquitetura de chunks que B3.
+// dataInicio: 'YYYY-MM-DD' do lançamento mais antigo de qualquer ativo de bolsa do usuário.
+function buscarPrecosMensaisIBOV(dataInicio) {
+    var hist     = loadIBOVHist();
+    var hoje     = hojeISO();
+    var mesAtual = hoje.slice(0, 7);
+
+    if (!dataInicio) {
+        var d1a = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+        dataInicio = d1a.toISOString().slice(0, 10);
+    }
+
+    var primMesNec = dataInicio.slice(0, 7);
+    var mesesCobr  = Object.keys(hist).sort();
+    var priMesCobr = mesesCobr[0] || null;
+    var coberto    = priMesCobr && priMesCobr <= primMesNec && hist[mesAtual];
+
+    if (coberto) {
+        _ibovMapaCache = hist;
+        return Promise.resolve(hist);
+    }
+
+    var fetchInicio = dataInicio;
+    if (priMesCobr && priMesCobr <= primMesNec && !hist[mesAtual]) {
+        var d90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        fetchInicio = d90.toISOString().slice(0, 10);
+    }
+    var chunks = gerarChunks(fetchInicio, hoje);
+
+    return _fetchChunksB3('%5EBVSP', chunks, hist, mesAtual).then(function () {
+        if (Object.keys(hist).length) saveIBOVHist(hist);
+        _ibovMapaCache = hist;
+        return hist;
+    }).catch(function () {
+        _ibovMapaCache = hist;
+        return hist;
+    });
 }
 
 // Retorna o mês anterior a "YYYY-MM" como "YYYY-MM"
@@ -4428,7 +4533,7 @@ var backupState = null;
 
 // [UI v1 · 29/09/2026] versão do app e rodapé de todas as páginas logadas.
 // Mudou a versão? Troque só APP_VERSAO.
-var APP_VERSAO = '1.0.0';
+var APP_VERSAO = '1.1.0';
 var APP_ANO = 2026;
 
 function rodapeHTML() {
@@ -5164,7 +5269,7 @@ function buscarCDIMesFechado(anoMes) {
      Proventos = PROVENTO + RENDIMENTO_RF recebidos no mês (não alteram
                  a posição; sem somá-los, a queda ex-dividendo distorceria o %
    Fonte de preços:
-     B3 → buscarPrecosMensaisB3 (range=2y/1mo, HTTP 200 confirmado 11/10/2026)
+     B3 → buscarPrecosMensaisB3 (chunks startDate/endDate 90d, interval=1d, plano free)
      Cripto → buscarPrecosMensaisCripto (Binance klines interval=1M)
      RF → custo acumulado (sem fonte de cotação de mercado)
    Fallback se não tiver preço → preço médio (custo/qtd) da posição naquela data
@@ -5293,10 +5398,14 @@ function rentabilidadeCarteiraMes(usuarioId, anoMes, precosMensaisPorTicker) {
     var aportes  = aportesLiquidosNoMes(usuarioId, anoMes);
     var proventos = proventosNoMes(usuarioId, anoMes);
 
-    // Formação: só quando realmente não havia carteira antes
+    // Primeiro mês da carteira (PI = 0): Modified Dietz com denominador = aportes × 0,5.
+    // O retorno é real (ex: -5,31% se o ativo caiu desde a compra até o fechamento do mês).
     if (patrimonioInicio <= 0) {
+        var denomPrim = aportes * 0.5;
+        if (denomPrim <= 0) return null; // sem aportes, sem base de cálculo
+        var numPrim = patrimonioFim - aportes + proventos;
         return {
-            rentabilidade: 0,
+            rentabilidade: (numPrim / denomPrim) * 100,
             primeiroMes: true,
             patrimonioInicio: 0,
             patrimonioFim: patrimonioFim,
@@ -5308,16 +5417,7 @@ function rentabilidadeCarteiraMes(usuarioId, anoMes, precosMensaisPorTicker) {
     // Modified Dietz: aportes líquidos com peso 0,5 (meio do mês)
     var numerador = patrimonioFim - patrimonioInicio - aportes + proventos;
     var denominador = patrimonioInicio + aportes * 0.5;
-    if (denominador <= 0) {
-        return {
-            rentabilidade: 0,
-            primeiroMes: true,
-            patrimonioInicio: patrimonioInicio,
-            patrimonioFim: patrimonioFim,
-            aportesLiquidos: aportes,
-            proventos: proventos,
-        };
-    }
+    if (denominador <= 0) return null;
     var rentabilidade = (numerador / denominador) * 100;
 
     return {
@@ -5394,7 +5494,7 @@ function obterMTD(usuarioId, cotacoes, cdiHoje) {
     // Início: prefere patrimonioFim do último mês fechado no histórico
     var db = loadDB();
     var histPrev = (db.historicoRentabilidade || []).filter(function (h) {
-        return h.usuarioId === usuarioId && h.mes === anoMesAnterior && !h.primeiroMes;
+        return h.usuarioId === usuarioId && h.mes === anoMesAnterior;
     })[0];
     var patrimonioInicio = histPrev && histPrev.patrimonioFim != null
         ? Number(histPrev.patrimonioFim)
@@ -5452,10 +5552,10 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
     var hoje = new Date();
     var db = loadDB();
 
-    // [RENT v4] Migração: força recálculo com formação só quando inicio <= 0.
-    if (!db.historicoRentabilidadeVersao || db.historicoRentabilidadeVersao < 4) {
+    // [HIST v2] Migração v6: recalcula com rentabilidade real no primeiro mês (PI=0 via Dietz).
+    if (!db.historicoRentabilidadeVersao || db.historicoRentabilidadeVersao < 6) {
         db.historicoRentabilidade = [];
-        db.historicoRentabilidadeVersao = 4;
+        db.historicoRentabilidadeVersao = 6;
         saveDB(db);
     }
 
@@ -5495,17 +5595,25 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
     var ativosPorId = ativosPorIdDe(dbNow);
     var tickersComClasse = [];
     var vistos = {};
+    // Mapeia ativoId → data mínima de transação do usuário
+    var minDataPorAtivo = {};
+    (dbNow.transacoes || []).forEach(function (t) {
+        if (t.usuarioId !== usuarioId || !t.data) return;
+        if (!minDataPorAtivo[t.ativoId] || t.data < minDataPorAtivo[t.ativoId]) {
+            minDataPorAtivo[t.ativoId] = t.data;
+        }
+    });
     (dbNow.ativos || []).forEach(function (a) {
         if (!vistos[a.ticker]) {
             vistos[a.ticker] = true;
-            tickersComClasse.push({ ticker: a.ticker, classe: a.classe });
+            tickersComClasse.push({ ticker: a.ticker, classe: a.classe, dataInicio: minDataPorAtivo[a.id] || null });
         }
     });
 
     // Busca preços mensais de todos os tickers em paralelo
     // (brapi ainda serializa via brapiFilaPromise por ticker, cripto não)
     var promessasPrecos = tickersComClasse.map(function (tc) {
-        return buscarPrecosMensais(tc.ticker, tc.classe).then(function (mapa) {
+        return buscarPrecosMensais(tc.ticker, tc.classe, tc.dataInicio).then(function (mapa) {
             return { ticker: tc.ticker, mapa: mapa };
         });
     });
@@ -5583,12 +5691,6 @@ function heatmapCelulasHTML(usuarioId, mtd) {
         var label = MESES_ABR[parseInt(partes[1], 10) - 1] + '/' + partes[0].slice(2);
         var rentab = (h.rentabilidade !== null && h.rentabilidade !== undefined) ? Number(h.rentabilidade) : null;
         var cdi    = (h.cdi !== null && h.cdi !== undefined) ? Number(h.cdi) : null;
-        if (h.primeiroMes) {
-            return '<div class="heatmap-celula neutro" title="' + h.mes + ' — mês de formação">' +
-                '<span class="heatmap-mes">' + label + '</span>' +
-                '<span class="heatmap-pct" style="font-size:9px;font-weight:500;color:var(--color-text-subtle)">formação</span>' +
-                '<span class="heatmap-cdi-ref">sem base</span></div>';
-        }
         var classe = (rentab !== null && cdi !== null) ? (rentab >= cdi ? 'acima' : 'abaixo') : 'neutro';
         if (h.parcial) classe += ' parcial';
         var pctStr = rentab !== null ? (rentab >= 0 ? '+' : '') + fmt2(rentab) + '%' : '—';
@@ -5627,7 +5729,7 @@ function secaoRentabilidadeHTML(usuarioId, mtd, ibovMapa) {
 
     var sub = mtd
         ? 'Retorno acumulado vs CDI · mês corrente parcial (atualizado 1× por abertura)'
-        : 'Retorno acumulado da carteira comparado ao CDI (meses de formação excluídos)';
+        : 'Retorno acumulado da carteira comparado ao CDI';
 
     return '<div id="rentab-bloco" class="rentab-bloco">' +
         '<p class="rentab-bloco-titulo">Rentabilidade vs CDI</p>' +
@@ -5714,10 +5816,21 @@ function renderDashboard(user) {
     var posicoes = posicoesAtuais(user.id);
     var tickers = Array.from(new Set(posicoes.map(function (p) { return p.ativo.ticker; })));
 
+    // [HIST v1] data do lançamento mais antigo de ativo de bolsa (para cobrir todo o histórico no IBOV)
+    var db0 = loadDB();
+    var ativosPorId0 = ativosPorIdDe(db0);
+    var primDateBolsa = null;
+    (db0.transacoes || []).forEach(function (t) {
+        if (t.usuarioId !== user.id || !t.data) return;
+        var at = ativosPorId0[t.ativoId];
+        if (!at || at.mercado !== 'BOLSA') return;
+        if (!primDateBolsa || t.data < primDateBolsa) primDateBolsa = t.data;
+    });
+
     var cotacaoPromise = tickers.length ? buscarCotacoes(tickers) : Promise.resolve({});
     var rankingsPromise = buscarRankingsResumo();
     var cdiPromise = buscarCDI(); // [CDI v1] uma chamada por dia, via cache
-    var ibovPromise = buscarPrecosMensaisIBOV(); // [IBOV v1] histórico mensal ^BVSP
+    var ibovPromise = buscarPrecosMensaisIBOV(primDateBolsa); // [HIST v1] histórico mensal ^BVSP desde o primeiro lançamento
 
     return Promise.all([cotacaoPromise, rankingsPromise, cdiPromise, ibovPromise]).then(function (resultadosPromise) {
         var cotacoes = resultadosPromise[0];
@@ -5735,9 +5848,15 @@ function renderDashboard(user) {
             ? kpis.valorInvestido + kpis.lucroPrejuizo + rfRendimentos
             : kpis.valorInvestido + rfRendimentos;
 
+        // [HIST v1] mapa mês → valor de mercado para o gráfico de barras evolutivo
+        var saldoPorMes = {};
+        (db0.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === user.id && h.patrimonioFim != null; }).forEach(function (h) {
+            saldoPorMes[h.mes] = Number(h.patrimonioFim);
+        });
+        saldoPorMes[hojeISO().slice(0, 7)] = kpis.saldoAtual;
+
         var evolucaoDados = dadosChartJsEvolucao(evolucaoMensal(user.id), {
-            lucroPrejuizo: kpis.lucroPrejuizo,
-            saldoMercado: kpis.saldoAtual,
+            saldoPorMes: saldoPorMes,
         });
         var alocacaoChart = montarGraficoAlocacao(alocacaoPorClasse(user.id));
 
@@ -5887,7 +6006,7 @@ function renderDashboard(user) {
             '<p style="margin-bottom:16px;"><strong>CDI estimado do mês</strong> é quanto o CDI deve render neste mês, calculado a partir da taxa diária mais recente do Banco Central (série SGS 12). ' +
             'O CDI é a principal referência da renda fixa no Brasil — é o que CDBs, LCIs e fundos DI tentam acompanhar. ' +
             'Saber o CDI do mês ajuda a entender o "custo de oportunidade": o mínimo que você poderia ter ganho deixando o dinheiro em renda fixa.</p>' +
-            '<p style="margin-bottom:16px;"><strong>Carteira acumulada no tempo</strong> é o retorno acumulado mês a mês desde o primeiro mês completo registrado, calculado pelo método Modified Dietz — que considera o momento em que cada aporte entrou, em vez de tratar todo o dinheiro como se tivesse estado investido o mês inteiro.</p>' +
+            '<p style="margin-bottom:16px;"><strong>Carteira acumulada no tempo</strong> é o retorno acumulado mês a mês desde o primeiro mês da carteira, calculado pelo método Modified Dietz — que considera o momento em que cada aporte entrou, em vez de tratar todo o dinheiro como se tivesse estado investido o mês inteiro.</p>' +
             '<p><strong>Diferença em pontos percentuais (p.p.) vs CDI</strong> é a comparação direta entre o retorno acumulado da sua carteira e o CDI acumulado no mesmo período. ' +
             'Se for positiva, sua carteira superou a renda fixa. Se for negativa, a renda fixa teria rendido mais. ' +
             'Essa comparação é importante porque o risco de renda variável (ações, FIIs, cripto) só compensa se o retorno superar a renda fixa no longo prazo.</p>' +
@@ -8188,7 +8307,7 @@ document.addEventListener('keydown', function (event) {
 // (dumpdata filtrado por usuário resolve boa parte).
 
 var BACKUP_FORMATO = 'dash-finance-backup';
-var BACKUP_VERSAO = 1;
+var BACKUP_VERSAO = 2;
 var ANTES_IMPORT_KEY = 'DASH_FINANCE_ANTES_IMPORT_V1';
 
 function montarBackup(usuarioId) {
@@ -8230,6 +8349,9 @@ function montarBackup(usuarioId) {
         historicoRentabilidade: (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; }).map(function (h) {
             return { mes: h.mes, rentabilidade: h.rentabilidade, cdi: h.cdi };
         }),
+        // [HIST v1] histórico de preços mensais (evita re-fetch na importação)
+        stockHist: loadStockHist(),
+        ibovHist: loadIBOVHist(),
         ativos: db.ativos
             .filter(function (a) { return usados[a.id]; })
             .map(function (a) { return { id: a.id, ticker: a.ticker, classe: a.classe }; }),
@@ -8444,6 +8566,9 @@ function validarBackup(texto) {
             transacoes: transacoes,
             balanceamento: obj.balanceamento && typeof obj.balanceamento === 'object' ? obj.balanceamento : null, // [BAL v1]
             objetivos: Array.isArray(obj.objetivos) ? obj.objetivos.filter(function (o) { return TIPOS_OBJETIVO[o.tipo] && Number(o.alvo) > 0; }) : null, // [OBJ v1]
+            historicoRentabilidade: Array.isArray(obj.historicoRentabilidade) ? obj.historicoRentabilidade : null,
+            stockHist: obj.stockHist && typeof obj.stockHist === 'object' ? obj.stockHist : null, // [HIST v1]
+            ibovHist: obj.ibovHist && typeof obj.ibovHist === 'object' ? obj.ibovHist : null,     // [HIST v1]
         },
         resumo: {
             usuario: obj.usuario || '',
@@ -8529,14 +8654,16 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
         });
     }
 
-    // [RENT v2] histórico de rentabilidade mensal.
-    // Ao importar backup, limpa o histórico deste usuário e reseta a flag de versão
-    // para que fecharMesAnteriorSeNecessario recalcule tudo com o método v2 (a mercado).
-    // Registros com rentabilidade null são descartados (backups de versões antigas).
+    // [HIST v1] restaura histórico de preços mensais (evita re-fetch no próximo boot)
+    if (dados.stockHist) saveStockHist(dados.stockHist);
+    if (dados.ibovHist) saveIBOVHist(dados.ibovHist);
+
+    // [RENT v5] histórico de rentabilidade mensal.
+    // Limpa o histórico deste usuário e força recálculo completo no próximo boot
+    // (garante que os preços recém-importados sejam usados desde o início).
+    db.historicoRentabilidade = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId !== usuarioId; });
+    db.historicoRentabilidadeVersao = 5; // força migração v6 no próximo boot
     if (dados.historicoRentabilidade) {
-        db.historicoRentabilidade = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId !== usuarioId; });
-        // Força recálculo com método v2 no próximo boot
-        db.historicoRentabilidadeVersao = 1; // intencional: versão < 2 dispara migração
         dados.historicoRentabilidade.forEach(function (h) {
             if (h.rentabilidade === null || h.rentabilidade === undefined) return;
             db.historicoRentabilidade.push({
