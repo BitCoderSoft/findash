@@ -508,6 +508,17 @@ Princípios — manter consistência em telas novas:
       a incluir apenas `PROVENTO` (dividendos distribuídos); `RENDIMENTO_RF` já está em
       `patrimonioNaData` (saldo RF real). Migração v8 limpa e recalcula o histórico.
       `APP_VERSAO` 1.2.1.
+29. ✅ Campo `descricao` (nota opcional) em todas as transações exceto Renda Fixa (`[CONV v1]`).
+      Aparece no formulário de lançamento para BOLSA, CRIPTO e PROVENTO; exibido como linha
+      secundária itálica na tabela de Lançamentos e na tabela de Proventos. Campo não armazenado
+      quando vazio; editar sem nota remove a nota existente.
+30. ✅ CONVERSAO com realização fiscal (`[CONV v1]`). Cotação do token de origem é buscada
+      automaticamente na data da conversão via Binance (`buscarPrecoConversaoNaData`: ao vivo ou
+      klines diários). `processarCarteira` recebe nova chave `realizado` por ID de transação.
+      Com `precoUnitario`: destino entra pelo valor de mercado; ganho/perda registrado em
+      `realizado[t.id]`. Sem cotação: comportamento legado (custo migra sem realização).
+      Tabela de Lançamentos mostra preço/un. no campo Valor total para CONVERSÃOs com cotação.
+      `APP_VERSAO` 1.3.0.
 
 ## Preferências de trabalho
 

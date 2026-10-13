@@ -316,6 +316,26 @@ input::placeholder { color: var(--color-text-subtle); }
     color: var(--color-text-subtle);
     margin: 0 2px;
 }
+.trans-nota {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--color-text-subtle);
+    margin-top: 3px;
+    font-style: italic;
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.conv-cotacao-info {
+    margin: 4px 0 0;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--color-neutral-bg);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    line-height: 1.5;
+}
 
 /* [FORM v2] classe travada quando o ticker já existe */
 select:disabled {
@@ -2163,6 +2183,7 @@ function ordenarTransacoes(lista) {
 function processarCarteira(transacoesOrdenadas, ativosPorId) {
     var posicoes = {};
     var deltaCusto = {};
+    var realizado = {}; // [CONV v1] ganho/perda fiscal realizado por CONVERSAO com precoUnitario
 
     function pos(ativoId) {
         if (!posicoes[ativoId]) {
@@ -2211,16 +2232,24 @@ function processarCarteira(transacoesOrdenadas, ativosPorId) {
             var saiu = baixar(pos(t.ativoId), t.quantidade);
             var destino = pos(t.ativoDestinoId);
             destino.quantidade += t.quantidadeDestino;
-            destino.custoTotal += saiu.custo;
-            // mesma fração com custo que saiu da origem chega no destino
-            var fracaoComCusto = t.quantidade > 0 ? saiu.qtdComCusto / t.quantidade : 0;
-            destino.qtdComCusto += t.quantidadeDestino * fracaoComCusto;
+            if (t.precoUnitario) {
+                // [CONV v1] Realização fiscal: destino entra pelo valor de mercado
+                var valorConv = t.quantidade * t.precoUnitario;
+                realizado[t.id] = valorConv - saiu.custo;
+                destino.custoTotal += valorConv;
+                destino.qtdComCusto += t.quantidadeDestino;
+            } else {
+                // Legado: custo migra sem realização fiscal
+                destino.custoTotal += saiu.custo;
+                var fracaoComCusto = t.quantidade > 0 ? saiu.qtdComCusto / t.quantidade : 0;
+                destino.qtdComCusto += t.quantidadeDestino * fracaoComCusto;
+            }
         }
 
         deltaCusto[t.id] = delta;
     });
 
-    return { posicoes: posicoes, deltaCusto: deltaCusto };
+    return { posicoes: posicoes, deltaCusto: deltaCusto, realizado: realizado };
 }
 
 function ativosPorIdDe(db) {
@@ -4022,6 +4051,64 @@ function buscarPrecosMensaisCripto(ticker, dataInicio) {
     }).catch(function () { return {}; });
 }
 
+// [CONV v1] Busca o preço do token de origem na data da conversão (em BRL via USDT×USDTBRL).
+// Hoje/futuro: ticker/price ao vivo; passado: klines diários para o dia exato.
+function buscarPrecoConversaoNaData(ticker, dataISO, cb) {
+    var token = tokenCripto(ticker);
+    if (!token) { cb(null); return; }
+    var hoje = hojeISO();
+    if (dataISO >= hoje) {
+        binanceGet('/api/v3/ticker/price').then(function (lista) {
+            var porSimbolo = {};
+            (lista || []).forEach(function (p) { porSimbolo[p.symbol] = Number(p.price); });
+            var usdtBrl = porSimbolo['USDTBRL'] || 0;
+            var precoUsdt = porSimbolo[token + 'USDT'] || 0;
+            if (precoUsdt > 0 && usdtBrl > 0) { cb(precoUsdt * usdtBrl); return; }
+            var precoBrl = porSimbolo[token + 'BRL'] || 0;
+            cb(precoBrl > 0 ? precoBrl : null);
+        }).catch(function () { cb(null); });
+        return;
+    }
+    var startMs = new Date(dataISO + 'T12:00:00Z').getTime();
+    var endMs = startMs + 86400000;
+    var limQ = '&interval=1d&startTime=' + startMs + '&endTime=' + endMs + '&limit=1';
+    Promise.all([
+        binanceGet('/api/v3/klines?symbol=USDTBRL' + limQ),
+        binanceGet('/api/v3/klines?symbol=' + token + 'USDT' + limQ),
+    ]).then(function (k) {
+        var closeUsdtBrl = k[0] && k[0][0] ? parseFloat(k[0][0][4]) : 0;
+        var closeUsdt    = k[1] && k[1][0] ? parseFloat(k[1][0][4]) : 0;
+        cb(closeUsdtBrl > 0 && closeUsdt > 0 ? closeUsdt * closeUsdtBrl : null);
+    }).catch(function () { cb(null); });
+}
+
+// [CONV v1] Atualiza o bloco de cotação no formulário de CONVERSAO.
+function atualizarCotacaoConversao(form) {
+    var tickerEl = form.querySelector('#f_ticker');
+    var dataEl   = form.querySelector('#f_data');
+    var blocoEl  = document.getElementById('conv-cotacao');
+    var precoEl  = form.querySelector('#f_conv_preco');
+    if (!tickerEl || !dataEl || !blocoEl || !precoEl) return;
+    var ticker = (tickerEl.value || '').toUpperCase().trim();
+    var dataISO = dataEl.value || '';
+    if (!ticker || !dataISO) {
+        blocoEl.textContent = 'Preencha o ticker e a data para buscar a cotação.';
+        precoEl.value = '';
+        return;
+    }
+    blocoEl.textContent = 'Buscando cotação…';
+    buscarPrecoConversaoNaData(ticker, dataISO, function (preco) {
+        if (preco && preco > 0) {
+            precoEl.value = preco;
+            blocoEl.innerHTML = '<strong>' + escapeHtml(ticker) + '</strong> em ' + formatDataBR(dataISO) +
+                ': <strong>R$ ' + fmtPreco(preco) + '</strong> &mdash; cotação registrada.';
+        } else {
+            precoEl.value = '';
+            blocoEl.textContent = 'Cotação não encontrada — custo será migrado sem realização fiscal.';
+        }
+    });
+}
+
 // Roteador: decide a fonte pelo campo classe do ativo. dataInicio: 'YYYY-MM-DD' do primeiro lançamento.
 function buscarPrecosMensais(ticker, classe, dataInicio) {
     if (classe === 'CRIPTO') return buscarPrecosMensaisCripto(ticker, dataInicio);
@@ -4597,7 +4684,11 @@ function salvarTransacao(usuarioId, dados, editId) {
         var destino = obterAtivo(dados.ticker_destino.toUpperCase().trim(), 'CRIPTO');
         registro.ativoDestinoId = destino.id;
         registro.quantidadeDestino = parseFloat(dados.quantidade_destino);
+        // [CONV v1] realização fiscal: preço de mercado da origem na data da conversão
+        var precoConv = parseFloat(dados._conv_preco);
+        if (precoConv > 0) registro.precoUnitario = precoConv;
     }
+    if (dados.descricao && dados.descricao.trim()) registro.descricao = dados.descricao.trim(); // [CONV v1]
     if (tipo === 'PROVENTO') { // [PROV v1]
         registro.quantidade = 0;
         registro.subtipo = dados.subtipo;
@@ -4610,6 +4701,7 @@ function salvarTransacao(usuarioId, dados, editId) {
         delete t.quantidadeDestino;
         delete t.subtipo;
         delete t.valor;
+        delete t.descricao; // [CONV v1] limpa para que editar sem nota remove a nota
         Object.assign(t, registro);
     } else {
         db.transacoes.push(Object.assign({
@@ -4665,7 +4757,7 @@ var _ordemPosicoes = { col: null, dir: 'asc' }; // col: 'quantidade'|'rentabilid
 
 // [UI v1 · 29/09/2026] versão do app e rodapé de todas as páginas logadas.
 // Mudou a versão? Troque só APP_VERSAO.
-var APP_VERSAO = '1.2.1';
+var APP_VERSAO = '1.3.0';
 var APP_ANO = 2026;
 
 function rodapeHTML() {
@@ -5035,6 +5127,8 @@ function corpoFormularioHTML(v, e, editId, usuarioId) {
             erroHTML(e, 'data') + '</div>' +
 
             '<p class="nota-operacao">Provento não mexe no preço médio nem no total investido. Ele entra no YoC do ativo (proventos recebidos ÷ total investido) e no retorno total da carteira.</p>';
+        html += '<div class="field"><label for="f_descricao">Nota (opcional)</label>' +
+            '<input type="text" name="descricao" id="f_descricao" autocomplete="off" placeholder="Ex.: pagamento de agosto, yield 0,80%…" maxlength="200" value="' + escapeHtml(v.descricao || '') + '"></div>';
         return html;
     }
 
@@ -5062,6 +5156,10 @@ function corpoFormularioHTML(v, e, editId, usuarioId) {
 
     if (ehConversao) {
         var tickerDestino = (v.ticker_destino || '').toUpperCase().trim();
+        var convPrecoIni = v._conv_preco;
+        var convBlocoTexto = convPrecoIni > 0
+            ? escapeHtml(ticker || '?') + ': cotação registrada R$ ' + fmtPreco(convPrecoIni)
+            : 'Preencha o ticker e a data para buscar a cotação.';
         html += '<div class="field"><label for="f_ticker_destino">Token de destino</label>' +
             campoTickerHTML({
                 nome: 'ticker_destino', id: 'f_ticker_destino', ticker: tickerDestino, mercado: 'CRIPTO',
@@ -5073,7 +5171,13 @@ function corpoFormularioHTML(v, e, editId, usuarioId) {
             '<div class="field"><label for="f_quantidade_destino">Quantidade recebida</label>' +
             '<input type="number" name="quantidade_destino" id="f_quantidade_destino" step="1e-8" value="' + (v.quantidade_destino != null ? escapeHtml(v.quantidade_destino) : '') + '">' +
             '<p class="field-help">O que de fato chegou, já descontadas as taxas da conversão.</p>' +
-            erroHTML(e, 'quantidade_destino') + '</div>';
+            erroHTML(e, 'quantidade_destino') + '</div>' +
+
+            // [CONV v1] cotação automática para realização fiscal
+            '<div class="field">' +
+            '<p class="conv-cotacao-info" id="conv-cotacao">' + convBlocoTexto + '</p>' +
+            '<input type="hidden" name="_conv_preco" id="f_conv_preco" value="' + escapeHtml(convPrecoIni || '') + '">' +
+            '</div>';
     }
 
     if (TIPOS_COM_PRECO[tipo]) {
@@ -5093,12 +5197,15 @@ function corpoFormularioHTML(v, e, editId, usuarioId) {
             erroHTML(e, 'corretagem_taxas') + '</div>';
     }
 
+    html += '<div class="field"><label for="f_descricao">Nota (opcional)</label>' +
+        '<input type="text" name="descricao" id="f_descricao" autocomplete="off" placeholder="Ex.: compra na Binance, DCA mensal…" maxlength="200" value="' + escapeHtml(v.descricao || '') + '"></div>';
+
     // explicação curta do efeito de cada operação sem preço
     var nota = {
         ENTRADA: 'Entrada soma a quantidade com custo zero: o valor investido e o preço médio de compra não mudam, e o ganho aparece na rentabilidade. Use pra mineração, recompensa, airdrop ou presente.',
         STAKE: 'Rendimento de staking: soma a quantidade recebida com custo zero, igual à Entrada. A diferença é que aqui a origem é o rendimento de stake na corretora, o que mantém essa receita identificada e separada dos demais tipos de entrada.',
         SAIDA: 'Saída tira a quantidade junto com o custo proporcional (pelo preço médio), sem retorno em reais. Use pra taxa de rede, envio a terceiros ou perda.',
-        CONVERSAO: 'O custo que sai do token de origem passa inteiro pro destino. Nenhuma cotação em reais entra nessa conta, e o total investido da carteira não muda.',
+        CONVERSAO: 'A cotação é buscada automaticamente pelo FinDash (Binance). Com cotação: o custo de origem é realizado a valor de mercado na data, e o destino entra com esse mesmo custo — ganho ou perda é registrado fiscalmente. Sem cotação: custo migra sem realização (comportamento anterior).',
     }[tipo]; // [STAKE v1]
     if (nota) html += '<p class="nota-operacao">' + nota + '</p>';
 
@@ -5161,6 +5268,9 @@ function reconstruirCorpoFormulario(form) {
 
     form.querySelector('#f_corpo').innerHTML = corpoFormularioHTML(valores, {}, editIdDoForm(form), user.id);
     aplicarAutopreenchimento(form);
+    // [CONV v1] se trocar para CONVERSAO já com ticker e data preenchidos, busca cotação
+    var tipoElR = form.querySelector('#f_tipo');
+    if (tipoElR && tipoElR.value === 'CONVERSAO') atualizarCotacaoConversao(form);
 }
 
 // [FORM v2 / CRIPTO v2] Reage à escolha do ticker de origem
@@ -6802,10 +6912,12 @@ function renderProventos(user) {
             var investido = pos ? pos.valorInvestido : 0;
             // [PROV v3] YoC individual: este lançamento / custo atual do ativo
             var yocStr = (investido > 0) ? fmt2(Number(t.valor) / investido * 100) + '%' : '—';
+            var subtipoCell = '<span class="trend provento">' + (SUBTIPOS_PROVENTO[t.subtipo] || t.subtipo || '—') + '</span>';
+            if (t.descricao) subtipoCell += '<span class="trans-nota">' + escapeHtml(t.descricao) + '</span>'; // [CONV v1]
             return '<tr>' +
                 '<td data-label="Data">' + dataFmt + '</td>' +
                 '<td class="td-titulo"><a role="link" tabindex="0" data-rota="/ativo/' + encodeURIComponent(ativo.ticker) + '" class="ativo-link">' + escapeHtml(ativo.ticker) + '</a></td>' +
-                '<td data-label="Subtipo"><span class="trend provento">' + (SUBTIPOS_PROVENTO[t.subtipo] || t.subtipo || '—') + '</span></td>' +
+                '<td data-label="Subtipo">' + subtipoCell + '</td>' +
                 '<td data-label="Valor"><span class="valor-provento">+ R$ ' + fmt2(t.valor) + '</span></td>' +
                 '<td data-label="YoC do provento"><span class="yoc" style="font-size:var(--text-sm)">' + yocStr + '</span></td>' +
                 '<td class="table-actions td-acoes">' +
@@ -6895,11 +7007,19 @@ function renderTransacoes(user) {
                 ativoCell = linkAtivo(ativo) + ' <span class="seta-conversao">&rarr;</span> ' + (destino ? linkAtivo(destino) : '?');
                 qtdCell = formatQuantidade(t.quantidade, ativo.classe) + ' <span class="seta-conversao">&rarr;</span> ' +
                     formatQuantidade(t.quantidadeDestino, 'CRIPTO');
+                // [CONV v1] se tem cotação registrada, mostra preço/un. na coluna de total
+                if (t.precoUnitario > 0) {
+                    totalCell = 'R$ ' + fmtPreco(t.precoUnitario) + '/un.';
+                }
             }
+
+            // [CONV v1] nota (descricao) exibida como linha secundária no tipo
+            var tipoCell = ETIQUETA[t.tipo] || escapeHtml(t.tipo);
+            if (t.descricao) tipoCell += '<span class="trans-nota">' + escapeHtml(t.descricao) + '</span>';
 
             // [MOBILE v1] data-label vira rótulo no cartão do celular
             return '<tr><td data-label="Data">' + dataFmt + '</td><td class="td-titulo">' + ativoCell + '</td><td data-label="Classe">' + CLASSES[ativo.classe] + '</td>' +
-                '<td data-label="Tipo">' + (ETIQUETA[t.tipo] || escapeHtml(t.tipo)) + '</td><td data-label="Quantidade">' + qtdCell + '</td>' +
+                '<td data-label="Tipo">' + tipoCell + '</td><td data-label="Quantidade">' + qtdCell + '</td>' +
                 '<td data-label="Preço unitário">' + precoCell + '</td><td data-label="Taxas">' + taxasCell + '</td><td data-label="Valor total">' + totalCell + '</td>' +
                 '<td class="table-actions td-acoes">' +
                 '<button type="button" class="button ghost small" data-editar-id="' + t.id + '">Editar</button>' +
@@ -7296,9 +7416,18 @@ document.addEventListener('click', function (event) {
                 quantidade_destino: t.quantidadeDestino != null ? t.quantidadeDestino : '',
                 subtipo: t.subtipo || '', // [PROV v1]
                 valor_provento: t.valor != null ? t.valor : '',
+                descricao: t.descricao || '', // [CONV v1]
+                _conv_preco: t.tipo === 'CONVERSAO' && t.precoUnitario > 0 ? t.precoUnitario : '', // [CONV v1]
             },
         };
         renderCurrentRoute();
+        // [CONV v1] após re-render, acionar cotação se já abriu como CONVERSAO com ticker+data
+        setTimeout(function () {
+            var form = document.getElementById('form-transacao');
+            if (!form) return;
+            var tipoEl = form.querySelector('#f_tipo');
+            if (tipoEl && tipoEl.value === 'CONVERSAO') atualizarCotacaoConversao(form);
+        }, 0);
         return;
     }
 
@@ -7400,7 +7529,17 @@ document.addEventListener('change', function (event) {
     if (!alvo.form || alvo.form.id !== 'form-transacao') return;
     // [CRIPTO v2] mercado e operação redesenham o formulário
     if (alvo.id === 'f_mercado' || alvo.id === 'f_tipo') reconstruirCorpoFormulario(alvo.form);
-    else if (alvo.id === 'f_ticker') aplicarAutopreenchimento(alvo.form);
+    else if (alvo.id === 'f_ticker') {
+        aplicarAutopreenchimento(alvo.form);
+        // [CONV v1] ticker do CONVERSAO é um <select>; dispara change, não input
+        var tipoElCh = alvo.form.querySelector('#f_tipo');
+        if (tipoElCh && tipoElCh.value === 'CONVERSAO') atualizarCotacaoConversao(alvo.form);
+    }
+    else if (alvo.id === 'f_data') {
+        // [CONV v1] date input dispara change ao confirmar a data
+        var tipoElChD = alvo.form.querySelector('#f_tipo');
+        if (tipoElChD && tipoElChD.value === 'CONVERSAO') atualizarCotacaoConversao(alvo.form);
+    }
     else if (alvo.id === 'f_ticker_destino') atualizarInfoDestino(alvo.form);
     else if (alvo.id === 'f_subtipo') delete alvo.dataset.auto; // [PROV v1]
 });
@@ -7441,7 +7580,13 @@ document.addEventListener('input', function (event) {
 
     if (alvo.id === 'f_ticker' && alvo.tagName === 'INPUT') {
         aplicarAutopreenchimento(alvo.form);
+        var tipoElA = alvo.form.querySelector('#f_tipo');
+        if (tipoElA && tipoElA.value === 'CONVERSAO') atualizarCotacaoConversao(alvo.form); // [CONV v1]
         return;
+    }
+    if (alvo.id === 'f_data') {
+        var tipoElB = alvo.form && alvo.form.querySelector('#f_tipo');
+        if (tipoElB && tipoElB.value === 'CONVERSAO') atualizarCotacaoConversao(alvo.form); // [CONV v1]
     }
     if (alvo.id === 'f_ticker_destino') {
         atualizarInfoDestino(alvo.form);
