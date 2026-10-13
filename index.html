@@ -5364,17 +5364,25 @@ function buscarCDI() {
     });
 }
 
-// Busca CDI acumulado de um mês fechado via BCB SGS 12.
+// Busca CDI acumulado de um período via BCB SGS 12.
 // BCB aceita datas no formato DD/MM/YYYY.
-// Retorna Promise<number|null> — percentual acumulado do mês (ex: 0.8469)
-function buscarCDIMesFechado(anoMes) {
+// dataInicioISO (opcional): 'YYYY-MM-DD' — quando fornecido, pro-rata desde essa data
+// em vez do dia 1 do mês (usado no primeiroMes para refletir só os dias com carteira ativa).
+// Retorna Promise<number|null> — percentual acumulado (ex: 0.8469)
+function buscarCDIMesFechado(anoMes, dataInicioISO) {
     var partes = anoMes.split('-');
     var ano = parseInt(partes[0], 10);
     var mes = parseInt(partes[1], 10);
     var ultimoDia = new Date(ano, mes, 0).getDate();
-    // formato DD/MM/YYYY para o BCB
     var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
-    var dataIni = '01/' + pad(mes) + '/' + ano;
+    var dataIni;
+    if (dataInicioISO) {
+        // primeiroMes: CDI apenas a partir da data do primeiro lançamento
+        var p = dataInicioISO.split('-');
+        dataIni = p[2] + '/' + p[1] + '/' + p[0];
+    } else {
+        dataIni = '01/' + pad(mes) + '/' + ano;
+    }
     var dataFim = pad(ultimoDia) + '/' + pad(mes) + '/' + ano;
     var url = BCB_CDI_PERIODO_URL + '&dataInicial=' + dataIni + '&dataFinal=' + dataFim;
     return fetch(url).then(function (r) { return r.ok ? r.json() : null; }).then(function (json) {
@@ -5688,9 +5696,10 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
     var db = loadDB();
 
     // [HIST v2] Migração v6: recalcula com rentabilidade real no primeiro mês (PI=0 via Dietz).
-    if (!db.historicoRentabilidadeVersao || db.historicoRentabilidadeVersao < 6) {
+    // [CDI v2] Migração v7: CDI do primeiroMes pro-rateado desde a data real do 1º lançamento.
+    if (!db.historicoRentabilidadeVersao || db.historicoRentabilidadeVersao < 7) {
         db.historicoRentabilidade = [];
-        db.historicoRentabilidadeVersao = 6;
+        db.historicoRentabilidadeVersao = 7;
         saveDB(db);
     }
 
@@ -5780,7 +5789,9 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                 var resultado = rentabilidadeCarteiraMes(usuarioId, am, precosMensaisPorTicker);
                 if (!resultado) return novos; // sem patrimônio neste mês
 
-                return buscarCDIMesFechado(am).then(function (cdi) {
+                // primeiroMes: CDI pro-rateado desde a data real do 1º lançamento
+                var cdiDataInicio = resultado.primeiroMes ? primeiraTx : undefined;
+                return buscarCDIMesFechado(am, cdiDataInicio).then(function (cdi) {
                     if (cdi === null) {
                         var ultimoCache = (function () {
                             try { return JSON.parse(armazem.get(CDI_CACHE_KEY) || 'null'); } catch (e) { return null; }

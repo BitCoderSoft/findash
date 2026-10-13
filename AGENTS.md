@@ -307,7 +307,8 @@ versão nova, apagar `historicoRentabilidade` e incrementar o número — o
 fechamento automático recalcula tudo no próximo boot. Nunca recalcular meses já
 fechados automaticamente fora da migração de versão.
 Histórico de versões: 4 = Modified Dietz base; 5 = preços reais via chunks B3;
-6 = primeiro mês com rentabilidade real (PI=0) + gráfico acumulado estilo Investidor10.
+6 = primeiro mês com rentabilidade real (PI=0) + gráfico acumulado estilo Investidor10;
+7 = CDI do `primeiroMes` pro-rateado desde a data real do primeiro lançamento (não o mês inteiro).
 
 ### Gráfico de linha acumulada
 
