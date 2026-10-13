@@ -100,9 +100,11 @@ Roteador: direciona para B3, Cripto ou Renda Fixa conforme a `classe`, repassand
 |---|---|
 | 4 | Modified Dietz + preços a mercado (base) |
 | 5 | Histórico via chunks de 90 dias (HIST v1) — recalcula com preços reais |
-| **6** | Primeiro mês com rentabilidade real via Modified Dietz (PI=0); gráfico acumulado no estilo Investidor10; barras evolutivas a valor de mercado |
+| 6 | Primeiro mês com rentabilidade real via Modified Dietz (PI=0); gráfico acumulado no estilo Investidor10; barras evolutivas a valor de mercado |
+| 7 | CDI do `primeiroMes` pro-rateado desde a data real do 1º lançamento (não o mês inteiro) |
+| **8** | Corrige dupla-contagem de `RENDIMENTO_RF`: removido de `proventosNoMes` (já estava em `patrimonioNaData`). Inflava ~0,8 p.p./mês proporcional ao saldo de RF |
 
-A flag `db.historicoRentabilidadeVersao` controla a migração em `fecharMesAnteriorSeNecessario`. Ao detectar versão `< 6`, apaga o histórico e recalcula tudo no boot.
+A flag `db.historicoRentabilidadeVersao` controla a migração em `fecharMesAnteriorSeNecessario`. Ao detectar versão `< 8`, apaga o histórico e recalcula tudo no boot.
 
 ---
 

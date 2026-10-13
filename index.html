@@ -4665,7 +4665,7 @@ var _ordemPosicoes = { col: null, dir: 'asc' }; // col: 'quantidade'|'rentabilid
 
 // [UI v1 · 29/09/2026] versão do app e rodapé de todas as páginas logadas.
 // Mudou a versão? Troque só APP_VERSAO.
-var APP_VERSAO = '1.2.0';
+var APP_VERSAO = '1.2.1';
 var APP_ANO = 2026;
 
 function rodapeHTML() {
@@ -5480,14 +5480,17 @@ function patrimonioNaData(usuarioId, anoMes, precosMensaisPorTicker) {
     return total;
 }
 
-// Soma PROVENTO + RENDIMENTO_RF recebidos no mês (valor em reais)
+// Soma PROVENTO (dividendos/juros distribuídos) recebidos no mês.
+// RENDIMENTO_RF não entra aqui: já está no saldo de patrimonioNaData().
+// [RENT v5 · 13/10/2026] Corrige dupla-contagem: RENDIMENTO_RF era somado
+// tanto no patrimônio final (via patrimonioNaData) quanto aqui, inflando ~0,8 p.p./mês.
 function proventosNoMes(usuarioId, anoMes) {
     var db = loadDB();
     var ini = anoMes + '-01';
     var fim = _ultimoDiaDoMes(anoMes);
     return (db.transacoes || []).filter(function (t) {
         return t.usuarioId === usuarioId
-            && (t.tipo === 'PROVENTO' || t.tipo === 'RENDIMENTO_RF')
+            && t.tipo === 'PROVENTO'
             && t.data >= ini && t.data <= fim;
     }).reduce(function (s, t) { return s + Number(t.valor || 0); }, 0);
 }
@@ -5697,9 +5700,10 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
 
     // [HIST v2] Migração v6: recalcula com rentabilidade real no primeiro mês (PI=0 via Dietz).
     // [CDI v2] Migração v7: CDI do primeiroMes pro-rateado desde a data real do 1º lançamento.
-    if (!db.historicoRentabilidadeVersao || db.historicoRentabilidadeVersao < 7) {
+    // [RENT v5] Migração v8: corrige dupla-contagem de RENDIMENTO_RF (retirado de proventosNoMes).
+    if (!db.historicoRentabilidadeVersao || db.historicoRentabilidadeVersao < 8) {
         db.historicoRentabilidade = [];
-        db.historicoRentabilidadeVersao = 7;
+        db.historicoRentabilidadeVersao = 8;
         saveDB(db);
     }
 

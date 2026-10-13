@@ -302,13 +302,14 @@ acumulado + heatmap) sem re-renderizar a página.
 
 ### Migração de versão
 
-Flag `db.historicoRentabilidadeVersao`. Versão atual: **6**. Ao subir para uma
+Flag `db.historicoRentabilidadeVersao`. Versão atual: **8**. Ao subir para uma
 versão nova, apagar `historicoRentabilidade` e incrementar o número — o
 fechamento automático recalcula tudo no próximo boot. Nunca recalcular meses já
 fechados automaticamente fora da migração de versão.
 Histórico de versões: 4 = Modified Dietz base; 5 = preços reais via chunks B3;
 6 = primeiro mês com rentabilidade real (PI=0) + gráfico acumulado estilo Investidor10;
-7 = CDI do `primeiroMes` pro-rateado desde a data real do primeiro lançamento (não o mês inteiro).
+7 = CDI do `primeiroMes` pro-rateado desde a data real do primeiro lançamento (não o mês inteiro);
+8 = corrige dupla-contagem de `RENDIMENTO_RF` em `proventosNoMes` (já incluído em `patrimonioNaData`).
 
 ### Gráfico de linha acumulada
 
@@ -503,6 +504,10 @@ Princípios — manter consistência em telas novas:
 27. ✅ Import com IDs estáveis — transações preservam ID original do backup; ativos e
       objetivos novos usam ID original quando não há colisão; `nextId` recalculado como
       `max(todos os IDs) + 1` após import. `APP_VERSAO` 1.2.0.
+28. ✅ Corrige dupla-contagem de `RENDIMENTO_RF` no Modified Dietz — `proventosNoMes` passa
+      a incluir apenas `PROVENTO` (dividendos distribuídos); `RENDIMENTO_RF` já está em
+      `patrimonioNaData` (saldo RF real). Migração v8 limpa e recalcula o histórico.
+      `APP_VERSAO` 1.2.1.
 
 ## Preferências de trabalho
 
