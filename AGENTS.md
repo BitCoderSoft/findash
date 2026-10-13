@@ -31,6 +31,8 @@ máquina, mas não há servidor nem deploy público.
   `armazem`.
 - **Cotações cripto**: Binance REST API (endpoints públicos, sem chave) com
   fallback entre `data-api.binance.vision` e `api.binance.com`.
+- **USD-BRL histórico**: BCB SGS série 1 (API pública, sem token) — mesma
+  infraestrutura do CDI. Usado exclusivamente para preencher `cotacoesFechamento[mes]["USDBRL"]`.
 - **Indicadores fundamentalistas**: bolsai.com.br — desativados
   (`INDICADORES_LIGADOS = false`) até resolver bloqueio de CORS no navegador.
 - **Sem dependências de terceiros**: zero npm, zero pip. O arquivo `dash-finance.html`
@@ -200,6 +202,22 @@ compra de jan para 5 → a venda de fev ficaria inválida".
 - Dois base URLs com fallback: `data-api.binance.vision` → `api.binance.com`.
 - Não passa pela fila `brapiFetch()` — são APIs independentes.
 
+**`[CRIPTO v1.3]`** `buscarPrecosMensaisCripto(ticker, dataInicio)` sempre busca `USDTBRL`
+klines de forma independente (não depende de ter USDT na carteira do usuário). Verifica
+se o par BRL está "vivo" checando se há dado para `mesAtual` ou `mesPrev`; se morto
+(ex.: ENABRL ativo apenas jan–mar/2026, ATOMBRL ativo apenas até 2023), usa fallback
+USDT×USDTBRL automaticamente.
+
+### BCB SGS (USD-BRL)
+
+- Série 1 do BCB SGS — taxa de câmbio USD-BRL diária, pública, sem token.
+- `buscarUsdBrlMensal(dataInicio)` — chunks implícitos via uma única chamada com
+  `dataInicial/dataFinal`, agrega o último valor por mês (fechamento do último dia útil).
+  Armazena em `USDBRL_HIST_KEY`. Meses fechados imutáveis; mês corrente e mesPrev atualizáveis.
+- `completarUsdBrlFechamento(usuarioId)` — roda no boot independente de haver meses pendentes.
+  Busca o histórico completo desde a primeira transação e preenche `cotacoesFechamento[mes]["USDBRL"]`
+  em snapshots existentes que ainda não têm o campo.
+
 ### Rankings (widget do Resumo)
 
 - Ações em alta, ações em queda, FIIs por liquidez, cripto (BTC/ETH/USDT) em
@@ -275,6 +293,12 @@ transações. Fallback para o valor histórico apenas se `patrimonioNaData` reto
 `Promise<number>` (meses novos fechados). Ao terminar com `novos > 0`, chama
 `atualizarHeatmapDOM` que substitui o bloco `#rentab-bloco` completo (gráfico
 acumulado + heatmap) sem re-renderizar a página.
+
+**Sequência de boot (após login):**
+1. `popularCotacoesFechamentoRetroativo(userId)` — síncrono, preenche snapshots com cache local (stockHist + ibovHist + usdBrlHist)
+2. `fecharMesAnteriorSeNecessario(userId)` — busca preços + IBOV + USDBRL via APIs, fecha meses pendentes, atualiza IBOV/USDBRL em snapshots existentes
+3. `.then`: `completarCotacoesFechamentoCripto(userId)` — preenche preços cripto faltantes em snapshots já existentes (pares BRL mortos → fallback USDT)
+4. `.then`: `completarUsdBrlFechamento(userId)` — preenche USDBRL em snapshots existentes (roda mesmo sem meses pendentes)
 
 ### Migração de versão
 
@@ -370,8 +394,10 @@ Chaves do sistema:
 | `DASH_FINANCE_QUOTE_CACHE_V1` | Cache de cotações B3 |
 | `DASH_FINANCE_HIST_CACHE_V1` | Cache de histórico de preço (detalhe do ativo) |
 | `DASH_FINANCE_RANKING_CACHE_V1` | Cache de rankings de mercado |
-| `DASH_FINANCE_IBOV_HIST_V1` | Histórico acumulado mensal do IBOV (`{ "YYYY-MM": close }`) |
+| `DASH_FINANCE_IBOV_HIST_V1` | Histórico acumulado mensal do IBOV (`{ "YYYY-MM": close, "_mesPrevOk": "YYYY-MM" }`) |
 | `DASH_FINANCE_STOCK_HIST_V1` | Histórico acumulado mensal por ticker B3 (`{ "ITSA4": { "YYYY-MM": close } }`) |
+| `DASH_FINANCE_USDBRL_HIST_V1` | Histórico acumulado mensal USD-BRL via BCB SGS 1 (`{ "YYYY-MM": close }`) |
+| `DASH_FINANCE_FECHAMENTOS_V1` | Snapshot de cotações no fechamento (`{ "YYYY-MM": { "TICKER": price, "IBOV": price, "USDBRL": price } }`) |
 
 ## Design system (CSS)
 
@@ -468,6 +494,14 @@ Princípios — manter consistência em telas novas:
 25. ✅ Posições — ordenação clicável por Quantidade, Rentabilidade e Saldo atual em
       todos os grupos (Ação, FII, BDR, Cripto). Estado `_ordemPosicoes` reseta ao
       sair da página. Primeiro clique: decrescente (maior primeiro).
+26. ✅ `cotacoesFechamento` — snapshot de cotações por mês fechado (`[FECH v1]`), com
+      `_mesPrevOk` para corrigir IBOV mid-month, `completarCotacoesFechamentoCripto` para
+      pares BRL mortos (ENA/ATOM), e `completarUsdBrlFechamento` + BCB SGS 1 para USDBRL.
+      Backup v3 exporta `cotacoesFechamento`, `usdBrlHist`, `mesAtual`; ibovHist exportado
+      sem chaves de controle (prefixo `_`).
+27. ✅ Import com IDs estáveis — transações preservam ID original do backup; ativos e
+      objetivos novos usam ID original quando não há colisão; `nextId` recalculado como
+      `max(todos os IDs) + 1` após import. `APP_VERSAO` 1.2.0.
 
 ## Preferências de trabalho
 
