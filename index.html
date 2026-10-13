@@ -1852,7 +1852,8 @@ var HIST_MENSAL_CACHE_KEY = 'DASH_FINANCE_HIST_MENSAL_V1';
 var HIST_MENSAL_TTL_MS = 24 * 60 * 60 * 1000;
 var IBOV_HIST_KEY  = 'DASH_FINANCE_IBOV_HIST_V1';  // histórico acumulado mensal do IBOV
 var STOCK_HIST_KEY = 'DASH_FINANCE_STOCK_HIST_V1'; // histórico acumulado mensal por ticker B3 { "ITSA4": { "YYYY-MM": close } }
-var FECHAMENTOS_KEY = 'DASH_FINANCE_FECHAMENTOS_V1'; // snapshot de cotações no fechamento { "YYYY-MM": { "TICKER": price, "IBOV": price } }
+var FECHAMENTOS_KEY  = 'DASH_FINANCE_FECHAMENTOS_V1'; // snapshot de cotações no fechamento { "YYYY-MM": { "TICKER": price, "IBOV": price } }
+var USDBRL_HIST_KEY  = 'DASH_FINANCE_USDBRL_HIST_V1'; // histórico acumulado mensal do USD-BRL { "YYYY-MM": close }
 // BCB SGS série 12 = CDI over diário (API pública, sem autenticação)
 var BCB_CDI_LATEST_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json';
 var BCB_CDI_PERIODO_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json';
@@ -3950,9 +3951,9 @@ function buscarPrecosMensaisCripto(ticker, dataInicio) {
         var r = pares[token];
         if (!r) return {};
 
-        var par = r.brl || (r.usdt ? r.usdt : null);
-        var viaUsdt = !r.brl && !!r.usdt;
-        if (!par) return {};
+        var parBrl  = r.brl  || null;
+        var parUsdt = r.usdt || null;
+        if (!parBrl && !parUsdt) return {};
 
         var limit = 25;
         if (dataInicio) {
@@ -3962,29 +3963,61 @@ function buscarPrecosMensaisCripto(ticker, dataInicio) {
         }
 
         var base = '/api/v3/klines?interval=1M&limit=' + limit + '&symbol=';
-        var pedidos = [binanceGet(base + par)];
-        if (viaUsdt) pedidos.push(binanceGet(base + 'USDTBRL'));
+
+        // [CRIPTO v1.3] USDTBRL sempre buscado de forma independente — não depende
+        // de USDT estar na carteira. Necessário para o fallback de pares BRL mortos
+        // (ex.: ENABRL deslistado em mar/2026, ATOMBRL morto desde 2023).
+        var pedidos = [
+            parBrl  ? binanceGet(base + parBrl)  : Promise.resolve(null),
+            parUsdt ? binanceGet(base + parUsdt) : Promise.resolve(null),
+            binanceGet(base + 'USDTBRL')
+        ];
 
         return Promise.all(pedidos).then(function (k) {
+            var klinesBrl     = k[0] || [];
+            var klinesUsdt    = k[1] || [];
+            var klinesUsdtBrl = k[2] || [];
+
+            // Mapa USDTBRL por mês (sempre disponível via fetch independente)
             var dolarPorMes = {};
-            if (k[1]) k[1].forEach(function (c) {
+            klinesUsdtBrl.forEach(function (c) {
                 var am = new Date(c[0]).toISOString().slice(0, 7);
                 dolarPorMes[am] = Number(c[4]);
             });
 
-            var mapa = {};
-            (k[0] || []).forEach(function (c) {
+            // Mapa BRL direto
+            var mapaBrl = {};
+            klinesBrl.forEach(function (c) {
                 var am = new Date(c[0]).toISOString().slice(0, 7);
                 var close = Number(c[4]);
-                if (viaUsdt) {
-                    var taxa = dolarPorMes[am];
-                    if (!taxa) return;
-                    close = close * taxa;
-                }
-                if (am && close > 0) mapa[am] = close;
+                if (am && close > 0) mapaBrl[am] = close;
             });
 
-            return mapa;
+            // Par BRL está vivo se tem dados do mês atual ou do mês anterior.
+            // Par que existe no ticker list mas não tem negócios recentes (ex.: ENABRL)
+            // retorna klines desatualizados — detectar e fazer fallback para USDT.
+            var mesAtualCripto = new Date().toISOString().slice(0, 7);
+            var mesPrevCripto  = _mesAnterior(mesAtualCripto);
+            var brlVivo = parBrl && (mapaBrl[mesAtualCripto] || mapaBrl[mesPrevCripto]);
+
+            // Par BRL vivo: usar diretamente
+            if (brlVivo) return mapaBrl;
+
+            // Fallback USDT × USDTBRL (independente de USDT estar na carteira)
+            if (parUsdt) {
+                var mapaUsdt = {};
+                klinesUsdt.forEach(function (c) {
+                    var am = new Date(c[0]).toISOString().slice(0, 7);
+                    var close = Number(c[4]);
+                    var taxa = dolarPorMes[am];
+                    if (!taxa || !am || !(close > 0)) return;
+                    mapaUsdt[am] = close * taxa;
+                });
+                return mapaUsdt;
+            }
+
+            // Par BRL morto e sem USDT disponível: retornar o que tiver de BRL
+            return mapaBrl;
         });
     }).catch(function () { return {}; });
 }
@@ -4015,6 +4048,12 @@ function loadCotacoesFechamento() {
 }
 function saveCotacoesFechamento(mapa) {
     try { armazem.set(FECHAMENTOS_KEY, JSON.stringify(mapa)); } catch (e) {}
+}
+function loadUsdBrlHist() {
+    try { var r = armazem.get(USDBRL_HIST_KEY); return r ? JSON.parse(r) : {}; } catch (e) { return {}; }
+}
+function saveUsdBrlHist(mapa) {
+    try { armazem.set(USDBRL_HIST_KEY, JSON.stringify(mapa)); } catch (e) {}
 }
 
 // Divide [dataInicio, dataFim] em janelas de até 90 dias (limite do plano free brapi).
@@ -4122,6 +4161,63 @@ function buscarPrecosMensaisIBOV(dataInicio) {
         _ibovMapaCache = hist;
         return hist;
     });
+}
+
+// [USDBRL v1] Histórico mensal USD-BRL via BCB SGS série 1 (mesmo provedor do CDI).
+// API pública, sem token. Retorna o fechamento do último dia útil de cada mês.
+// Meses fechados não sobrescritos; mês corrente sempre atualiza.
+function buscarUsdBrlMensal(dataInicio) {
+    var hist    = loadUsdBrlHist();
+    var hoje    = hojeISO();
+    var mesAtual = hoje.slice(0, 7);
+
+    if (!dataInicio) {
+        dataInicio = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    }
+
+    var primMesNec = dataInicio.slice(0, 7);
+    var mesesCobr  = Object.keys(hist).sort();
+    var coberto    = mesesCobr.length && mesesCobr[0] <= primMesNec && hist[mesAtual];
+
+    if (coberto) return Promise.resolve(hist);
+
+    // Formata YYYY-MM-DD → DD/MM/YYYY (padrão BCB)
+    function fmtBCB(iso) {
+        var p = iso.split('-');
+        return p[2] + '/' + p[1] + '/' + p[0];
+    }
+
+    var fetchInicio = dataInicio;
+    if (mesesCobr.length && mesesCobr[0] <= primMesNec && !hist[mesAtual]) {
+        // histórico completo, só falta o mês corrente
+        fetchInicio = mesAtual + '-01';
+    }
+
+    var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados?formato=json' +
+              '&dataInicial=' + fmtBCB(fetchInicio) + '&dataFinal=' + fmtBCB(hoje);
+
+    return fetch(url)
+        .then(function (resp) { return resp.ok ? resp.json() : []; })
+        .then(function (lista) {
+            if (!Array.isArray(lista)) return hist;
+            // BCB retorna em ordem crescente — constrói mapa acumulando (último por mês ganha)
+            var mapaFetch = {};
+            lista.forEach(function (e) {
+                var p  = e.data.split('/');    // ["DD","MM","YYYY"]
+                var am = p[2] + '-' + p[1];   // "YYYY-MM"
+                var v  = parseFloat(e.valor);
+                if (am && v) mapaFetch[am] = v; // último valor do mês sobrescreve = fechamento
+            });
+            var mesPrev = _mesAnterior(mesAtual);
+            Object.keys(mapaFetch).forEach(function (am) {
+                // mês corrente e mesPrev: sempre atualiza (corrige mid-month)
+                // meses fechados já gravados: imutáveis
+                if (am === mesAtual || am === mesPrev || !hist[am]) hist[am] = mapaFetch[am];
+            });
+            if (Object.keys(hist).length) saveUsdBrlHist(hist);
+            return hist;
+        })
+        .catch(function () { return hist; });
 }
 
 // Retorna o mês anterior a "YYYY-MM" como "YYYY-MM"
@@ -4569,7 +4665,7 @@ var _ordemPosicoes = { col: null, dir: 'asc' }; // col: 'quantidade'|'rentabilid
 
 // [UI v1 · 29/09/2026] versão do app e rodapé de todas as páginas logadas.
 // Mudou a versão? Troque só APP_VERSAO.
-var APP_VERSAO = '1.1.0';
+var APP_VERSAO = '1.2.0';
 var APP_ANO = 2026;
 
 function rodapeHTML() {
@@ -5657,18 +5753,23 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
         });
     });
 
-    // [FECH v1] também busca IBOV para incluir no snapshot de fechamento
+    // [FECH v1] também busca IBOV e USDBRL para incluir no snapshot de fechamento
     var primeiraDataB3 = null;
+    var primeiraDataQualquer = null;
     tickersComClasse.forEach(function (tc) {
+        if (tc.dataInicio && (!primeiraDataQualquer || tc.dataInicio < primeiraDataQualquer)) primeiraDataQualquer = tc.dataInicio;
         if (tc.classe !== 'CRIPTO' && tc.classe !== 'RENDA_FIXA' && tc.dataInicio) {
             if (!primeiraDataB3 || tc.dataInicio < primeiraDataB3) primeiraDataB3 = tc.dataInicio;
         }
     });
-    var promessaIBOV = primeiraDataB3 ? buscarPrecosMensaisIBOV(primeiraDataB3) : Promise.resolve({});
+    var promessaIBOV   = primeiraDataB3        ? buscarPrecosMensaisIBOV(primeiraDataB3)           : Promise.resolve({});
+    // [USDBRL v1] taxa de câmbio mensal para referência em relatórios externos
+    var promessaUsdBrl = primeiraDataQualquer   ? buscarUsdBrlMensal(primeiraDataQualquer)          : Promise.resolve({});
 
-    return Promise.all([Promise.all(promessasPrecos), promessaIBOV]).then(function (ambos) {
-        var resultados = ambos[0];
-        var ibovMapa = ambos[1] || {};
+    return Promise.all([Promise.all(promessasPrecos), promessaIBOV, promessaUsdBrl]).then(function (ambos) {
+        var resultados  = ambos[0];
+        var ibovMapa    = ambos[1] || {};
+        var usdBrlMapa  = ambos[2] || {};
         var precosMensaisPorTicker = {};
         resultados.forEach(function (r) { precosMensaisPorTicker[r.ticker] = r.mapa; });
 
@@ -5715,7 +5816,8 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                                 var p = precosMensaisPorTicker[tk][am];
                                 if (p) snap[tk] = p;
                             });
-                            if (ibovMapa[am]) snap['IBOV'] = ibovMapa[am];
+                            if (ibovMapa[am])   snap['IBOV']   = ibovMapa[am];
+                            if (usdBrlMapa[am]) snap['USDBRL'] = usdBrlMapa[am];
                             fechamentos[am] = snap;
                             saveCotacoesFechamento(fechamentos);
                         }
@@ -5735,12 +5837,11 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
             (dbFinal.historicoRentabilidade || []).forEach(function (h) {
                 if (h.usuarioId !== usuarioId) return;
                 if (fechAtual[h.mes]) {
-                    // Snapshot existe: atualizar IBOV se o valor mudou (ex.: mesPrev corrigido pelo fetch)
-                    var ibovNovo = ibovMapa[h.mes];
-                    if (ibovNovo && fechAtual[h.mes]['IBOV'] !== ibovNovo) {
-                        fechAtual[h.mes]['IBOV'] = ibovNovo;
-                        temNovo = true;
-                    }
+                    // Snapshot existe: atualizar IBOV/USDBRL se o valor mudou
+                    var ibovNovo   = ibovMapa[h.mes];
+                    var usdBrlNovo = usdBrlMapa[h.mes];
+                    if (ibovNovo   && fechAtual[h.mes]['IBOV']   !== ibovNovo)   { fechAtual[h.mes]['IBOV']   = ibovNovo;   temNovo = true; }
+                    if (usdBrlNovo && fechAtual[h.mes]['USDBRL'] !== usdBrlNovo) { fechAtual[h.mes]['USDBRL'] = usdBrlNovo; temNovo = true; }
                     return;
                 }
                 var snap = {};
@@ -5748,7 +5849,8 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                     var p = precosMensaisPorTicker[tk][h.mes];
                     if (p) snap[tk] = p;
                 });
-                if (ibovMapa[h.mes]) snap['IBOV'] = ibovMapa[h.mes];
+                if (ibovMapa[h.mes])   snap['IBOV']   = ibovMapa[h.mes];
+                if (usdBrlMapa[h.mes]) snap['USDBRL'] = usdBrlMapa[h.mes];
                 if (Object.keys(snap).length > 0) {
                     fechAtual[h.mes] = snap;
                     temNovo = true;
@@ -5760,6 +5862,92 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
     });
 }
 
+// [FECH v2] Completa snapshots de meses já fechados com preços cripto que estejam faltando.
+// Roda em background após fecharMesAnteriorSeNecessario. Detecta tickers cripto sem preço
+// em algum snapshot existente e faz fetch (com fallback USDT independente). Idempotente:
+// se o ticker já está no snapshot, é ignorado. Executa no máximo uma vez por ticker
+// por mês (na abertura seguinte ao fechamento do mês).
+function completarCotacoesFechamentoCripto(usuarioId) {
+    var db = loadDB();
+    var fechamentos = loadCotacoesFechamento();
+    var historico = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; });
+    if (!historico.length) return Promise.resolve();
+
+    // Mapa ativoId → ativo
+    var ativoMap = {};
+    (db.ativos || []).forEach(function (a) { ativoMap[a.id] = a; });
+
+    // Tickers cripto do usuário com dataInicio (primeira transação)
+    var criptoInfo = {}; // { ticker: dataInicio }
+    (db.transacoes || []).filter(function (t) { return t.usuarioId === usuarioId; }).forEach(function (t) {
+        var a = ativoMap[t.ativoId];
+        if (!a || a.classe !== 'CRIPTO') return;
+        if (!criptoInfo[a.ticker] || t.data < criptoInfo[a.ticker]) criptoInfo[a.ticker] = t.data;
+    });
+
+    if (!Object.keys(criptoInfo).length) return Promise.resolve();
+
+    // Verificar quais tickers faltam em algum snapshot fechado existente
+    var tickersFaltando = {};
+    historico.forEach(function (h) {
+        var snap = fechamentos[h.mes];
+        if (!snap) return; // snapshot não existe: será criado por fecharMesAnteriorSeNecessario
+        Object.keys(criptoInfo).forEach(function (ticker) {
+            if (snap[ticker] === undefined) tickersFaltando[ticker] = criptoInfo[ticker];
+        });
+    });
+
+    if (!Object.keys(tickersFaltando).length) return Promise.resolve();
+
+    var promessas = Object.keys(tickersFaltando).map(function (ticker) {
+        return buscarPrecosMensaisCripto(ticker, tickersFaltando[ticker])
+            .then(function (mapa) { return { ticker: ticker, mapa: mapa }; })
+            .catch(function () { return { ticker: ticker, mapa: {} }; });
+    });
+
+    return Promise.all(promessas).then(function (resultados) {
+        var fechAtual = loadCotacoesFechamento(); // reload para evitar race
+        var temNovo = false;
+        resultados.forEach(function (r) {
+            historico.forEach(function (h) {
+                if (!fechAtual[h.mes] || fechAtual[h.mes][r.ticker] !== undefined) return;
+                var p = r.mapa[h.mes];
+                if (p) { fechAtual[h.mes][r.ticker] = p; temNovo = true; }
+            });
+        });
+        if (temNovo) saveCotacoesFechamento(fechAtual);
+    }).catch(function () {});
+}
+
+// [USDBRL v1] Roda no boot independente de fecharMesAnteriorSeNecessario.
+// Busca histórico USD-BRL e preenche snapshots de cotacoesFechamento que ainda não têm USDBRL.
+function completarUsdBrlFechamento(usuarioId) {
+    var db = loadDB();
+    var historico = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; });
+    if (!historico.length) return Promise.resolve();
+
+    // data mais antiga de qualquer transação do usuário
+    var minData = null;
+    (db.transacoes || []).forEach(function (t) {
+        if (t.usuarioId === usuarioId && t.data && (!minData || t.data < minData)) minData = t.data;
+    });
+
+    return buscarUsdBrlMensal(minData).then(function (usdBrlMapa) {
+        if (!Object.keys(usdBrlMapa).length) return;
+        var fechAtual = loadCotacoesFechamento();
+        var temNovo = false;
+        historico.forEach(function (h) {
+            if (!fechAtual[h.mes]) return;
+            var v = usdBrlMapa[h.mes];
+            if (v && fechAtual[h.mes]['USDBRL'] !== v) {
+                fechAtual[h.mes]['USDBRL'] = v;
+                temNovo = true;
+            }
+        });
+        if (temNovo) saveCotacoesFechamento(fechAtual);
+    }).catch(function () {});
+}
+
 // [FECH v1] Preenche cotacoesFechamento para meses já fechados usando apenas dados em cache
 // (stockHist + ibovHist). Roda no boot, sem fetch. Cripto fica vazio até o próximo fechamento.
 function popularCotacoesFechamentoRetroativo(usuarioId) {
@@ -5767,12 +5955,14 @@ function popularCotacoesFechamentoRetroativo(usuarioId) {
     var fechamentos = loadCotacoesFechamento();
     var sh = loadStockHist();
     var ih = loadIBOVHist();
+    var uh = loadUsdBrlHist();
     var temNovo = false;
     (db.historicoRentabilidade || []).forEach(function (h) {
         if (h.usuarioId !== usuarioId || fechamentos[h.mes]) return;
         var snap = {};
         Object.keys(sh).forEach(function (tk) { var p = sh[tk][h.mes]; if (p) snap[tk] = p; });
-        if (ih[h.mes]) snap['IBOV'] = ih[h.mes];
+        if (ih[h.mes]) snap['IBOV']   = ih[h.mes];
+        if (uh[h.mes]) snap['USDBRL'] = uh[h.mes];
         if (Object.keys(snap).length > 0) { fechamentos[h.mes] = snap; temNovo = true; }
     });
     if (temNovo) saveCotacoesFechamento(fechamentos);
@@ -6893,8 +7083,15 @@ function renderCurrentRoute() {
         // [FECH v1] preenche snapshots retroativos imediatamente com cache (B3 + IBOV)
         popularCotacoesFechamentoRetroativo(user.id);
         fecharMesAnteriorSeNecessario(user.id)
-            .then(function (novos) { if (novos > 0) atualizarHeatmapDOM(user.id); })
-            .catch(function () {});
+            .then(function (novos) {
+                if (novos > 0) atualizarHeatmapDOM(user.id);
+                // [FECH v2] completa snapshots com preços cripto e USD-BRL faltantes
+                completarCotacoesFechamentoCripto(user.id).catch(function () {});
+                completarUsdBrlFechamento(user.id).catch(function () {});
+            })
+            .catch(function () {
+                completarUsdBrlFechamento(user.id).catch(function () {});
+            });
     }
 
     var app = document.getElementById('app');
@@ -8651,9 +8848,19 @@ function montarBackup(usuarioId) {
         historicoRentabilidade: (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; }).map(function (h) {
             return { mes: h.mes, rentabilidade: h.rentabilidade, cdi: h.cdi };
         }),
-        // [HIST v1] histórico de preços mensais (evita re-fetch na importação)
+        // [HIST v1] histórico de preços mensais (evita re-fetch na importação).
+        // mesAtual: mês em andamento — dados desse mês no stockHist são parciais.
+        mesAtual: hojeISO().slice(0, 7),
         stockHist: loadStockHist(),
-        ibovHist: loadIBOVHist(),
+        // ibovHist exportado sem chaves de controle interno (prefixo _)
+        ibovHist: (function () {
+            var h = loadIBOVHist();
+            var limpo = {};
+            Object.keys(h).forEach(function (k) { if (k[0] !== '_') limpo[k] = h[k]; });
+            return limpo;
+        }()),
+        // [USDBRL v1] histórico mensal USD-BRL para relatórios externos
+        usdBrlHist: loadUsdBrlHist(),
         // [FECH v1] cotações no momento de cada fechamento — fonte de verdade para relatórios externos
         cotacoesFechamento: loadCotacoesFechamento(),
         ativos: db.ativos
@@ -8898,10 +9105,14 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
 
     var db = loadDB();
     var mapa = {};
+    // [IMPORT v1] ativos novos: preserva ID original do backup quando não há colisão.
+    // Ativos já existentes por ticker: reusa o ID local (não muda o que já está no DB).
     dados.ativos.forEach(function (a) {
         var local = db.ativos.filter(function (x) { return x.ticker === a.ticker; })[0];
         if (!local) {
-            local = { id: db.nextId++, ticker: a.ticker, classe: a.classe, moeda: 'BRL', criadoEm: Date.now() };
+            var idLivre = !db.ativos.some(function (x) { return x.id === a.id; });
+            var novoId  = idLivre ? a.id : db.nextId++;
+            local = { id: novoId, ticker: a.ticker, classe: a.classe, moeda: 'BRL', criadoEm: Date.now() };
             db.ativos.push(local);
         }
         mapa[a.id] = local.id;
@@ -8910,9 +9121,11 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
     db.transacoes = db.transacoes.filter(function (t) { return t.usuarioId !== usuarioId; });
 
     // na ordem dos ids originais, pra empate de criadoEm continuar igual
+    // [IMPORT v1] mantém IDs originais das transações — colisão impossível pois as
+    // transações deste usuário foram removidas acima, e a filtragem é sempre por usuarioId.
     dados.transacoes.slice().sort(function (a, b) { return a.id - b.id; }).forEach(function (t) {
         var nova = {
-            id: db.nextId++,
+            id: t.id,
             usuarioId: usuarioId,
             ativoId: mapa[t.ativoId],
             tipo: t.tipo,
@@ -8948,11 +9161,14 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
     }
 
     // [OBJ v1] objetivos do arquivo substituem os atuais (se o arquivo tiver)
+    // [IMPORT v1] preserva ID original do objetivo quando não há colisão
     if (dados.objetivos) {
         db.objetivos = (db.objetivos || []).filter(function (o) { return o.usuarioId !== usuarioId; });
         dados.objetivos.forEach(function (o) {
+            var idObjLivre = !(db.objetivos || []).some(function (x) { return x.id === o.id; });
+            var idObj = (o.id && idObjLivre) ? o.id : db.nextId++;
             db.objetivos.push({
-                id: db.nextId++, usuarioId: usuarioId, tipo: o.tipo, classe: o.classe || null, nome: o.nome || '',
+                id: idObj, usuarioId: usuarioId, tipo: o.tipo, classe: o.classe || null, nome: o.nome || '',
                 alvo: Number(o.alvo), aporteMensal: o.aporteMensal != null ? Number(o.aporteMensal) : null,
                 concluidoEm: o.concluidoEm || null, criadoEm: o.criadoEm || Date.now(),
             });
@@ -8964,6 +9180,8 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
     // de versões anteriores — o boot vai re-popular via fetch.
     saveStockHist(dados.stockHist || {});
     saveIBOVHist(dados.ibovHist || {});
+    // [USDBRL v1] restaura histórico USD-BRL (limpa se ausente no backup)
+    saveUsdBrlHist(dados.usdBrlHist || {});
     // [FECH v1] restaura snapshot de cotações de fechamento (limpa se ausente)
     saveCotacoesFechamento(dados.cotacoesFechamento || {});
 
@@ -8988,6 +9206,15 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
             });
         });
     }
+
+    // [IMPORT v1] recalcula nextId = max(todos os IDs existentes) + 1
+    // garante que IDs originais preservados não causem colisão em futuros creates
+    var todosIds = [db.nextId - 1];
+    (db.usuarios     || []).forEach(function (e) { todosIds.push(e.id); });
+    (db.ativos       || []).forEach(function (e) { todosIds.push(e.id); });
+    (db.transacoes   || []).forEach(function (e) { todosIds.push(e.id); });
+    (db.objetivos    || []).forEach(function (e) { todosIds.push(e.id); });
+    db.nextId = Math.max.apply(null, todosIds) + 1;
 
     saveDB(db);
 }
