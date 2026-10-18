@@ -1,194 +1,4 @@
 <!DOCTYPE html>
-<!--
-  FinDash — clone single-file (HTML+CSS+JS) do app Django do mesmo projeto.
-
-  - "Banco de dados" = localStorage do navegador (chave DASH_FINANCE_DB_V1).
-    Cada navegador/perfil tem sua própria carteira; nada sai da máquina, exceto
-    a consulta de cotação (brapi.dev).
-  - Token da brapi fica direto no código (const BRAPI_TOKEN), sem .env — decisão
-    explícita: este arquivo é uso pessoal, local, nunca publicado/versionado
-    em repositório compartilhado. Não faça isso num projeto que vá ao ar.
-  - Autenticação aqui é só para manter a mesma experiência (várias contas na
-    mesma máquina) — a senha passa por um hash bem simples só pra não ficar
-    em texto puro no localStorage; NÃO é segurança de verdade. Não reutilize
-    essa senha em outro lugar.
-  - Regras de negócio (preço médio ponderado, bloqueio de venda a descoberto,
-    agrupamento por classe, formatação de quantidade pra B3, etc.) são um
-    porte fiel de investments/services.py, investments/forms.py e
-    investments/charts.py do app Django — ver AGENTS.md do projeto principal
-    para o porquê de cada regra.
-
-  ==================================================================
-  GUIA DE MANUTENÇÃO (ler antes de mexer, principalmente no VS Code)
-  ==================================================================
-  Este arquivo deixou de ser réplica exata do Django em 28/09/2026 e
-  passou a evoluir por conta própria. Cada mudança fica marcada no
-  código com a tag [MOTOR v2] (ou a próxima versão), explicando o
-  que mudou e por quê. Procure pela tag pra achar todos os pontos.
-
-  Pendências de porte pro Django (o que precisa ser levado de volta
-  se o projeto final continuar em Python):
-
-  [MOTOR v2 · 28/09/2026]
-    1. Ordem canônica dos lançamentos (ordenarTransacoes)
-       -> services.py: _custo_medio_por_ativo e evolucao_mensal
-          precisam ordenar por (data, COMPRA antes de VENDA,
-          criado_em, id). Antes era só (data, criado_em, id).
-    2. Validação cronológica de venda (verificarCronologia)
-       -> forms.py (TransacaoForm.clean) + services.py
-          A venda passa a ser checada contra o saldo NA DATA dela,
-          não contra o saldo total de hoje.
-    3. Edição e exclusão também são validadas
-       -> forms.py (edição) e views.py (view de exclusão)
-          Editar ou excluir uma compra não pode deixar nenhuma
-          venda posterior sem saldo.
-    4. Zeramento de resíduo de quantidade (QTD_EPSILON)
-       -> NÃO se aplica ao Django (Decimal não gera esse resíduo).
-    5. Corrida de renderização entre rotas (navegacaoSeq)
-       -> NÃO se aplica ao Django (lá cada página é uma requisição
-          nova). É problema só do roteamento por hash deste arquivo.
-
-  [NAV v1 · 28/09/2026]
-    6. Navegação interna sem href (navegar() + data-rota)
-       -> NÃO se aplica ao Django (lá os links são URLs de verdade).
-          Existe pra o arquivo funcionar dentro do preview do
-          claude.ai, que trata qualquer <a href> como link externo.
-
-  [STORE v1 · 28/09/2026]
-    7. Camada de armazenamento (armazem + window.storage)
-       -> NÃO se aplica ao Django. Existe porque o preview do
-          claude.ai bloqueia localStorage; ver bloco ARMAZENAMENTO.
-
-  [FORM v1 · 28/09/2026]
-    8. Envio de formulário por clique/Enter (processarFormulario)
-       -> NÃO se aplica ao Django. O sandbox do preview bloqueia o
-          envio nativo de <form> antes do evento submit existir.
-
-  [RF-OFF · 28/09/2026]
-   10. Renda fixa desativada (CLASSES_LANCAVEIS)
-       -> APLICA-SE: tirar RENDA_FIXA das choices do form no Django
-          (manter no model por causa de dados antigos).
-
-  [CRIPTO v1 · 28/09/2026]
-   11. Cotação de cripto pela Binance (bloco MARKET DATA CRIPTO)
-       [v1.1] cache de cripto com chave própria "CRIPTO:<ticker>":
-       a brapi tem tickers com nome de token (ex.: BTC é um ETF
-       americano) e os dois caches não podem se misturar. No Django,
-       usar prefixo diferente na chave do cache de cada fonte.
-       -> APLICA-SE: criar market_data_crypto.py com a mesma regra de
-          par (BRL primeiro, USDT x USDTBRL de reserva) e rotear por
-          classe no lugar que hoje chama buscar_cotacoes.
-   12. fmtPreco (casas adaptativas em preço unitário abaixo de R$ 1)
-       -> APLICA-SE: filtro de template equivalente.
-
-  [FMT v1 · 28/09/2026]
-   13. Separador de milhar em todos os valores (formatarBR)
-       -> APLICA-SE: no Django, USE_THOUSAND_SEPARATOR = True com
-          LANGUAGE_CODE pt-br, ou |intcomma do humanize, e trocar o
-          _formatar_quantidade das mensagens de erro pra vírgula.
-
-  [BACKUP v1 · 28/09/2026]
-   18. Página Backup: exportar/importar JSON + verificação da carteira
-       (bloco BACKUP E VERIFICAÇÃO)
-       -> APLICA-SE como view de export/import no Django; a verificação
-          vira um service auditar_carteira(usuario) reaproveitável.
-
-  [CRIPTO v2.1 · 28/09/2026]
-   19. Preço médio de COMPRA: entrada gratuita não mexe no PM
-       (qtdComCusto em processarCarteira); rentabilidade pelo valor
-       -> APLICA-SE: guardar qtd_com_custo na posição do services.
-  [CRIPTO v1.2 · 28/09/2026]
-   20. Par em reais parado ou fora do mercado cai pro USDT x USDTBRL
-       (escolherCotacaoCripto). Caso real: ENABRL a R$ 0,60 com o
-       mercado em R$ 1,35.
-       -> APLICA-SE no market_data_crypto.py.
-
-  [POS v2 · 28/09/2026]
-   21. Posições com "Total investido" e "Saldo atual" (por ativo, por
-       classe e no card do topo)
-       -> APLICA-SE: é só exibição, os números já existem em services.
-  [MOBILE v1 · 28/09/2026]
-   22. Modo celular/PWA: menu sanduíche por cima da tela, botão
-       flutuante "+", lançamento em tela cheia, tabelas em cartões
-       (bloco CSS MODO CELULAR / PWA)
-       -> APLICA-SE ao base.css do Django (mesmas classes).
-
-  [ACORDEAO v1 · 28/09/2026]
-   23. Classes recolhíveis em Posições (setinha no cabeçalho), aberto
-       no computador e recolhido no celular por padrão; escolha fica
-       guardada por tela
-       -> APLICA-SE ao template de posições (JS pequeno + CSS).
-
-  [INDIC v1 · 28/09/2026]
-   24. Indicadores da bolsai (plano gratuito) na página do ativo:
-       FII (P/VP, DY 12m, vacância...), ação (fundamentos + faixa de 52
-       semanas), BDR (só preço). Cache diário, 1 busca por ativo por dia
-       -> APLICA-SE: market_data_bolsai.py com cache até meia-noite UTC.
-
-  [INDIC v1.1 · 28/09/2026]
-   25. bolsai: tenta a chave no cabeçalho e, se o navegador barrar,
-       como ?api_key= na URL. Mensagem própria pra bloqueio de CORS.
-       -> NÃO se aplica ao Django (chamada servidor-servidor não tem CORS).
-  [GRAF v2 · 28/09/2026]
-   26. Gráfico do ativo mais baixo (240px / 190px no celular)
-       -> APLICA-SE a charts.py (mesma ideia de viewBox proporcional).
-
-  [PROV v1 · 28/09/2026]
-   27. Proventos lançados à mão (tipo PROVENTO em Bolsa: dividendo, JCP,
-       rendimento), coluna Proventos com YoC em Posições, retorno total
-       no card do topo, histórico de proventos na página do ativo
-       -> APLICA-SE: Transacao ganha subtipo e valor (nulos nos outros
-          tipos); services calcula proventos por ativo e YoC.
-  [INDIC v1.2 · 28/09/2026]
-   28. Indicadores da bolsai DESLIGADOS (INDICADORES_LIGADOS = false)
-       até resolvermos o bloqueio de origem no navegador.
-
-  [BAL v1 · 28/09/2026]
-   29. Página Balanceamento: alocação ideal por classe (%), nota 0-10
-       por ativo -> peso ideal, desvio em p.p., simulador de aporte
-       (só compra, guloso pela maior falta, cota inteira em bolsa)
-       -> APLICA-SE: model Balanceamento (classes + notas) e o
-          simulador como função pura em services.
-
-  [OBJ v1 · 29/09/2026]
-   30. Página Objetivos (patrimônio total, patrimônio de uma classe,
-       proventos acumulados, renda mensal em proventos), com progresso,
-       aporte mensal (informado ou média real), faltam e conclusão
-       estimada; concluídos ficam guardados com data
-       -> APLICA-SE: model Objetivo + service de avaliação.
-
-  [UI v1 · 29/09/2026]
-   31. Rodapé "FinDash v1.0.0 · © 2026 · Desenvolvido por
-       BitCoderSoft" (APP_VERSAO), "Olá, usuário" no topo e no menu do
-       celular, Posições sem coluna Proventos no grupo de cripto
-       -> APLICA-SE ao base.html / template de posições.
-
-  [RANK v2 · 28/09/2026]
-   17. Rankings do Resumo em 4 colunas: ações em alta, ações em queda,
-       FIIs por liquidez, cripto (BTC/ETH/USDT) em reais
-       -> APLICA-SE se o Resumo do Django quiser o mesmo widget.
-
-  [CRIPTO v2 · 28/09/2026]
-   14. Mercado antes de tudo (Bolsa ou Cripto) + BDR em bolsa
-       -> APLICA-SE: campo mercado no form; BDR nas choices de classe.
-   15. Cinco tipos de transação: COMPRA, VENDA, ENTRADA, SAIDA, CONVERSAO
-       (ver pernasDaTransacao e processarCarteira)
-       -> APLICA-SE, e é a mudança mais profunda: model Transacao ganha
-          ativo_destino (FK nula) e quantidade_destino; services passa a
-          processar os 5 tipos com as mesmas regras de custo:
-          entrada = custo zero; saída = baixa pelo preço médio;
-          conversão = custo da origem migra pro destino, sem cotação.
-   16. Posição de custo zero: tem valor atual, não tem % (custoZero)
-       -> APLICA-SE em aplicar_cotacoes e nos destaques.
-
-  [FORM v2 · 28/09/2026]
-    9. Lançamento guiado (Tipo primeiro, ticker em lista na venda,
-       autopreenchimento de classe, quantidade e preço)
-       -> APLICA-SE ao Django se quiser a mesma experiência: reordenar
-          os campos do TransacaoForm e um JS no template. As regras
-          usadas (saldo de hoje, preço médio) já existem em services.
-       Também corrige o bug da classe voltando pra "Ação" após erro.
--->
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -4748,6 +4558,12 @@ var drawerState = null; // null = fechado/vazio; ou {open, editId, values, error
 var backupState = null;
 // [PROV v3] filtro de ativo na página de proventos. 'todos' = sem filtro.
 var _filtroProvento = 'todos';
+// [TRANS v1] filtros e paginação da página de lançamentos
+var _filtroTransAtivo = 'todos';
+var _filtroTransClasse = 'todos';
+var _filtroTransTipo = 'todos';
+var _paginaTransacoes = 1;
+var TRANS_POR_PAGINA = 25;
 var _ordemPosicoes = { col: null, dir: 'asc' }; // col: 'quantidade'|'rentabilidade'|'saldo'|null
 
 /* =================================================================
@@ -4757,7 +4573,7 @@ var _ordemPosicoes = { col: null, dir: 'asc' }; // col: 'quantidade'|'rentabilid
 
 // [UI v1 · 29/09/2026] versão do app e rodapé de todas as páginas logadas.
 // Mudou a versão? Troque só APP_VERSAO.
-var APP_VERSAO = '1.3.0';
+var APP_VERSAO = '1.4.0';
 var APP_ANO = 2026;
 
 function rodapeHTML() {
@@ -6952,10 +6768,93 @@ function renderProventos(user) {
 
 function renderTransacoes(user) {
     var db = loadDB();
-    var transacoes = db.transacoes
+    var todasTransacoes = db.transacoes
         .filter(function (t) { return t.usuarioId === user.id && t.tipo !== 'PROVENTO' && t.tipo !== 'RENDIMENTO_RF'; }) // [PROV v2] proventos ficam na página /proventos; [RF v1] rendimentos de RF ficam invisíveis aqui
         .slice()
         .sort(function (a, b) { return a.data < b.data ? 1 : a.data > b.data ? -1 : 0; }); // -data (mais recente primeiro)
+
+    // [TRANS v1] coletar ativos únicos presentes nas transações (para seletor)
+    var ativosMap = {};
+    todasTransacoes.forEach(function (t) {
+        if (!ativosMap[t.ativoId]) {
+            var at = db.ativos.filter(function (a) { return a.id === t.ativoId; })[0];
+            if (at) ativosMap[t.ativoId] = at;
+        }
+    });
+    var ativosUnicos = Object.keys(ativosMap)
+        .map(function (id) { return ativosMap[id]; })
+        .sort(function (a, b) { return a.ticker < b.ticker ? -1 : 1; });
+
+    // Classes únicas presentes
+    var classesUnicas = [];
+    ativosUnicos.forEach(function (at) {
+        if (classesUnicas.indexOf(at.classe) === -1) classesUnicas.push(at.classe);
+    });
+    classesUnicas.sort(function (a, b) { return (CLASSES[a] || a) < (CLASSES[b] || b) ? -1 : 1; });
+
+    // Tipos únicos presentes
+    var LABEL_TIPO = {
+        COMPRA: 'Compra', VENDA: 'Venda', ENTRADA: 'Entrada',
+        STAKE: 'Stake', SAIDA: 'Saída', CONVERSAO: 'Conversão', APORTE: 'Aporte'
+    };
+    var tiposUnicos = [];
+    todasTransacoes.forEach(function (t) {
+        if (tiposUnicos.indexOf(t.tipo) === -1) tiposUnicos.push(t.tipo);
+    });
+    tiposUnicos.sort(function (a, b) { return (LABEL_TIPO[a] || a) < (LABEL_TIPO[b] || b) ? -1 : 1; });
+
+    // [TRANS v1] barra de filtros
+    var selAtivo = '<select id="select-filtro-trans-ativo" class="input" style="max-width:180px;padding:6px 10px;height:auto;">' +
+        '<option value="todos"' + (_filtroTransAtivo === 'todos' ? ' selected' : '') + '>Todos os ativos</option>' +
+        ativosUnicos.map(function (at) {
+            return '<option value="' + at.id + '"' + (_filtroTransAtivo == at.id ? ' selected' : '') + '>' + escapeHtml(at.ticker) + '</option>';
+        }).join('') + '</select>';
+    var selClasse = '<select id="select-filtro-trans-classe" class="input" style="max-width:160px;padding:6px 10px;height:auto;">' +
+        '<option value="todos"' + (_filtroTransClasse === 'todos' ? ' selected' : '') + '>Todas as classes</option>' +
+        classesUnicas.map(function (c) {
+            return '<option value="' + c + '"' + (_filtroTransClasse === c ? ' selected' : '') + '>' + escapeHtml(CLASSES[c] || c) + '</option>';
+        }).join('') + '</select>';
+    var selTipo = '<select id="select-filtro-trans-tipo" class="input" style="max-width:160px;padding:6px 10px;height:auto;">' +
+        '<option value="todos"' + (_filtroTransTipo === 'todos' ? ' selected' : '') + '>Todos os tipos</option>' +
+        tiposUnicos.map(function (tp) {
+            return '<option value="' + tp + '"' + (_filtroTransTipo === tp ? ' selected' : '') + '>' + escapeHtml(LABEL_TIPO[tp] || tp) + '</option>';
+        }).join('') + '</select>';
+    // Aplicar filtros
+    var transacoesFiltradas = todasTransacoes.filter(function (t) {
+        if (_filtroTransAtivo !== 'todos' && String(t.ativoId) !== String(_filtroTransAtivo)) return false;
+        if (_filtroTransClasse !== 'todos') {
+            var at = db.ativos.filter(function (a) { return a.id === t.ativoId; })[0];
+            if (!at || at.classe !== _filtroTransClasse) return false;
+        }
+        if (_filtroTransTipo !== 'todos' && t.tipo !== _filtroTransTipo) return false;
+        return true;
+    });
+
+    // Paginação
+    var totalPaginas = Math.max(1, Math.ceil(transacoesFiltradas.length / TRANS_POR_PAGINA));
+    if (_paginaTransacoes > totalPaginas) _paginaTransacoes = totalPaginas;
+    var paginaAtual = _paginaTransacoes;
+    var inicio = (paginaAtual - 1) * TRANS_POR_PAGINA;
+    var transacoes = transacoesFiltradas.slice(inicio, inicio + TRANS_POR_PAGINA);
+
+    function paginacaoHTML(posicao) {
+        if (totalPaginas <= 1) return '';
+        var prev = '<button type="button" class="button ghost small" data-trans-pag="' + (paginaAtual - 1) + '"' +
+            (paginaAtual <= 1 ? ' disabled' : '') + '>&larr; Anterior</button>';
+        var next = '<button type="button" class="button ghost small" data-trans-pag="' + (paginaAtual + 1) + '"' +
+            (paginaAtual >= totalPaginas ? ' disabled' : '') + '>Próxima &rarr;</button>';
+        var info = '<span style="font-size:var(--text-sm);color:var(--color-muted);">Página ' + paginaAtual + ' de ' + totalPaginas +
+            ' <span style="color:var(--color-border)">·</span> ' + transacoesFiltradas.length + ' lançamentos</span>';
+        if (posicao === 'top') {
+            return '<div style="display:flex;align-items:center;gap:8px;margin-left:auto;">' + info + prev + next + '</div>';
+        }
+        return '<div style="display:flex;justify-content:center;align-items:center;gap:8px;padding:16px 0 4px;">' + prev + info + next + '</div>';
+    }
+
+    var filtroBarHTML = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:20px;">' +
+        '<label style="font-size:var(--text-sm);color:var(--color-muted);white-space:nowrap;">Filtrar por:</label>' +
+        selAtivo + selClasse + selTipo +
+        paginacaoHTML('top') + '</div>';
 
     function linkAtivo(ativo) {
         return '<a role="link" tabindex="0" data-rota="/ativo/' + encodeURIComponent(ativo.ticker) + '" class="ativo-link">' +
@@ -7029,17 +6928,19 @@ function renderTransacoes(user) {
 
         corpo = '<div class="table-wrap"><table class="table table-cards"><thead><tr>' +
             '<th>Data</th><th>Ativo</th><th>Classe</th><th>Tipo</th><th>Quantidade</th><th>Preço unitário</th><th>Taxas</th><th>Valor total</th><th>Ações</th>' +
-            '</tr></thead><tbody>' + linhas + '</tbody></table></div>';
+            '</tr></thead><tbody>' + linhas + '</tbody></table></div>' +
+            paginacaoHTML('bottom');
     } else {
-        corpo = '<div class="empty-panel">' + emptyIllustrationBars() +
-            '<p class="empty-title">Nenhuma movimentação registrada ainda</p>' +
-            '<p class="empty-text">Clique em "+ Novo lançamento" para registrar sua primeira compra.</p></div>';
+        var emptyMsg = todasTransacoes.length > 0
+            ? '<p class="empty-title">Nenhum lançamento encontrado</p><p class="empty-text">Tente ajustar os filtros acima.</p>'
+            : '<p class="empty-title">Nenhuma movimentação registrada ainda</p><p class="empty-text">Clique em "+ Novo lançamento" para registrar sua primeira compra.</p>';
+        corpo = '<div class="empty-panel">' + emptyIllustrationBars() + emptyMsg + '</div>';
     }
 
     return '' +
         '<div class="app-shell">' + topbarHTML('/transacoes') +
         '<main class="page-content">' +
-        '' +
+        filtroBarHTML +
         corpo +
         '</main>' + rodapeHTML() + '</div>' +
         drawerTransacaoHTML(drawerState);
@@ -7191,6 +7092,7 @@ function navegar(rota) {
     if (rota !== '/backup') backupState = null; // [BACKUP v1]
     if (rota !== '/balanceamento') balanceamentoState = null; // [BAL v1]
     if (rota !== '/proventos') _filtroProvento = 'todos'; // [PROV v3]
+    if (rota !== '/transacoes') { _filtroTransAtivo = 'todos'; _filtroTransClasse = 'todos'; _filtroTransTipo = 'todos'; _paginaTransacoes = 1; } // [TRANS v1]
     if (rota !== '/posicoes') _ordemPosicoes = { col: null, dir: 'asc' };
     objetivoState = null; // [OBJ v1]
     try {
@@ -7572,6 +7474,32 @@ document.addEventListener('change', function (event) {
     var app = document.getElementById('app');
     app.innerHTML = renderProventos(user);
     inicializarCharts();
+});
+
+// [TRANS v1] filtros de ativo/classe/tipo na página de lançamentos
+document.addEventListener('change', function (event) {
+    var id = event.target.id;
+    if (id !== 'select-filtro-trans-ativo' && id !== 'select-filtro-trans-classe' && id !== 'select-filtro-trans-tipo') return;
+    if (id === 'select-filtro-trans-ativo') _filtroTransAtivo = event.target.value;
+    if (id === 'select-filtro-trans-classe') _filtroTransClasse = event.target.value;
+    if (id === 'select-filtro-trans-tipo') _filtroTransTipo = event.target.value;
+    _paginaTransacoes = 1; // [TRANS v1] resetar ao mudar filtro
+    var user = currentUser();
+    if (!user) return;
+    document.getElementById('app').innerHTML = renderTransacoes(user);
+});
+
+// [TRANS v1] paginação de lançamentos
+document.addEventListener('click', function (event) {
+    var btn = event.target.closest('[data-trans-pag]');
+    if (!btn || btn.disabled) return;
+    var pag = Number(btn.getAttribute('data-trans-pag'));
+    if (!pag || isNaN(pag)) return;
+    _paginaTransacoes = pag;
+    var user = currentUser();
+    if (!user) return;
+    document.getElementById('app').innerHTML = renderTransacoes(user);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
 document.addEventListener('input', function (event) {

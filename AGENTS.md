@@ -519,6 +519,15 @@ Princípios — manter consistência em telas novas:
       `realizado[t.id]`. Sem cotação: comportamento legado (custo migra sem realização).
       Tabela de Lançamentos mostra preço/un. no campo Valor total para CONVERSÃOs com cotação.
       `APP_VERSAO` 1.3.0.
+31. ✅ Lançamentos — filtros por ativo, classe e tipo de transação (`[TRANS v1]`). Três selects
+      na barra superior da página; filtros combinados em AND; estado (`_filtroTransAtivo`,
+      `_filtroTransClasse`, `_filtroTransTipo`) reseta ao sair da rota `/transacoes`. Mudar
+      qualquer filtro reseta a página para 1.
+32. ✅ Lançamentos — paginação com 25 linhas por página (`TRANS_POR_PAGINA = 25`). Controles
+      "← Anterior / Próxima →" + indicador "Página X de Y · N lançamentos" no topo (alinhado
+      à direita na barra de filtros) e no rodapé da tabela (centralizado). Controles ocultados
+      quando há uma única página. Scroll suave ao topo ao trocar de página. Estado
+      `_paginaTransacoes` reseta ao sair da rota ou ao mudar qualquer filtro. `APP_VERSAO` 1.4.0.
 
 ## Preferências de trabalho
 
