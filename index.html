@@ -355,8 +355,13 @@ a.nav-item:hover { color: var(--color-text); }
 .rentab-bloco-sub {
     font-size: var(--text-xs);
     color: var(--color-text-muted);
-    margin-bottom: 14px;
+    margin-bottom: 10px;
 }
+/* [DARK v1 / PERIOD v1] seletor de período do gráfico de rentabilidade */
+.periodo-selector { display: flex; gap: 5px; margin-bottom: 14px; flex-wrap: wrap; }
+.periodo-btn { appearance: none; border: 1px solid var(--color-border-strong); border-radius: 6px; background: transparent; color: var(--color-text-muted); font-family: inherit; font-size: 11px; font-weight: 600; padding: 3px 10px; cursor: pointer; transition: background 100ms, color 100ms, border-color 100ms; }
+.periodo-btn:hover { background: var(--color-neutral-bg); color: var(--color-text); }
+.periodo-btn.ativo { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
 .rentab-linha-wrap {
     position: relative;
     height: 280px;
@@ -2765,7 +2770,7 @@ function htmlChartJs(id, dados, formatoY, altura, tipo) {
 // Inclui MTD (mês corrente parcial) se fornecido. Todas as linhas partem de 0%
 // O primeiro mês da carteira é a origem (0%); seu retorno entra no acumulado dos meses seguintes.
 // Retorna null se não houver nenhum ponto válido.
-function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa) {
+function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro) {
     var db = loadDB();
     var todoHist = (db.historicoRentabilidade || []).filter(function (h) {
         return h.usuarioId === usuarioId;
@@ -2784,6 +2789,21 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa) {
         var jaFechado = pontos.some(function (h) { return h.mes === mtd.mes; });
         if (!jaFechado) pontos.push(mtd);
     }
+
+    // [PERIOD v1] filtro de período: recorta pontos e reseta a origem para 0%
+    if (filtro && filtro !== 'tudo' && pontos.length) {
+        var hoje = new Date();
+        var cutoff;
+        if (filtro === 'ytd') {
+            cutoff = hoje.getFullYear() + '-01';
+        } else {
+            var nMeses = parseInt(filtro, 10); // 3, 6, 12
+            var d = new Date(hoje.getFullYear(), hoje.getMonth() - nMeses + 1, 1);
+            cutoff = d.getFullYear() + '-' + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
+        }
+        pontos = pontos.filter(function (h) { return h.mes >= cutoff; });
+    }
+
     if (!pontos.length) return null;
 
     var MESES_ABR = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -4640,6 +4660,7 @@ var _filtroTransTipo = 'todos';
 var _paginaTransacoes = 1;
 var TRANS_POR_PAGINA = 25;
 var _ordemPosicoes = { col: null, dir: 'asc' }; // col: 'quantidade'|'rentabilidade'|'saldo'|null
+var _periodoRentab = 'tudo'; // [PERIOD v1] 'tudo' | '1a' | '6m' | '3m' | 'ytd'
 
 /* =================================================================
    COMPONENTES DE TEMPLATE (HTML como string, mesma marcação dos templates
@@ -6010,13 +6031,26 @@ function atualizarHeatmapDOM(usuarioId) {
     inicializarCharts();
 }
 
-// Células do heatmap (só o miolo — sem wrapper externo). mtd opcional.
-function heatmapCelulasHTML(usuarioId, mtd) {
+// Células do heatmap (só o miolo — sem wrapper externo). mtd e filtro opcionais.
+function heatmapCelulasHTML(usuarioId, mtd, filtro) {
     var db = loadDB();
     var hist = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; });
     hist.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
     if (mtd && !hist.some(function (h) { return h.mes === mtd.mes; })) {
         hist = hist.concat([mtd]);
+    }
+    // [PERIOD v1] aplica o mesmo recorte de período do gráfico
+    if (filtro && filtro !== 'tudo' && hist.length) {
+        var hoje = new Date();
+        var cutoff;
+        if (filtro === 'ytd') {
+            cutoff = hoje.getFullYear() + '-01';
+        } else {
+            var nMeses = parseInt(filtro, 10);
+            var d = new Date(hoje.getFullYear(), hoje.getMonth() - nMeses + 1, 1);
+            cutoff = d.getFullYear() + '-' + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
+        }
+        hist = hist.filter(function (h) { return h.mes >= cutoff; });
     }
     if (!hist.length) {
         return '<p style="font-size:var(--text-xs);color:var(--color-text-subtle)">Calculando histórico…</p>';
@@ -6048,7 +6082,8 @@ function heatmapCelulasHTML(usuarioId, mtd) {
 function secaoRentabilidadeHTML(usuarioId, mtd, ibovMapa) {
     mtd = mtd || _mtdCache;
     ibovMapa = ibovMapa || _ibovMapaCache || {};
-    var dadosLinha = dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa);
+    var filtro = _periodoRentab || 'tudo';
+    var dadosLinha = dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro);
     var graficoHTML;
     if (dadosLinha) {
         graficoHTML = htmlChartJs(
@@ -6067,13 +6102,31 @@ function secaoRentabilidadeHTML(usuarioId, mtd, ibovMapa) {
         ? 'Retorno acumulado vs CDI · mês corrente parcial (atualizado 1× por abertura)'
         : 'Retorno acumulado da carteira comparado ao CDI';
 
+    // [PERIOD v1] botões de seleção de período
+    var periodos = [
+        { valor: '3m',  label: '3M' },
+        { valor: '6m',  label: '6M' },
+        { valor: 'ytd', label: 'YTD' },
+        { valor: '1a',  label: '1A' },
+        { valor: 'tudo', label: 'Tudo' },
+    ];
+    var botoesHTML = '<div class="periodo-selector">' +
+        periodos.map(function (p) {
+            return '<button type="button" class="periodo-btn' + (filtro === p.valor ? ' ativo' : '') +
+                '" data-periodo-rentab="' + p.valor + '">' + p.label + '</button>';
+        }).join('') +
+        '</div>';
+
     return '<div id="rentab-bloco" class="rentab-bloco">' +
-        '<p class="rentab-bloco-titulo">Rentabilidade vs CDI</p>' +
-        '<p class="rentab-bloco-sub">' + sub + '</p>' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">' +
+        '<div><p class="rentab-bloco-titulo" style="margin-bottom:4px;">Rentabilidade vs CDI</p>' +
+        '<p class="rentab-bloco-sub" style="margin-bottom:0;">' + sub + '</p></div>' +
+        botoesHTML +
+        '</div>' +
         graficoHTML +
         '<div class="heatmap-wrap">' +
         '<p class="heatmap-titulo">Mês a mês</p>' +
-        '<div class="heatmap-grid">' + heatmapCelulasHTML(usuarioId, mtd) + '</div>' +
+        '<div class="heatmap-grid">' + heatmapCelulasHTML(usuarioId, mtd, filtro) + '</div>' +
         '</div></div>';
 }
 
@@ -6722,10 +6775,16 @@ function renderProventos(user) {
     var maiorProventoAtivo = maiorProventoTx ? (db.ativos.filter(function(a){ return a.id === maiorProventoTx.ativoId; })[0] || null) : null;
     var maiorProventoData = maiorProventoTx ? maiorProventoTx.data.split('-').reverse().join('/') : '';
 
-    // YoC global: total recebido / total investido (posições atuais)
+    // YoC global: total recebido / custo da base geradora de renda.
+    // Quando filtro = 'todos': só ACAO e FII (mesma lógica do dashboard).
+    // Quando filtro = ativo específico: usa o custo daquele ativo independente da classe.
     var totalInvestidoProv = 0;
     posicoesAtuais(user.id).forEach(function (p) {
-        if (ativoFiltradoId === 'todos' || p.ativo.id === ativoFiltradoId) totalInvestidoProv += p.valorInvestido;
+        if (ativoFiltradoId !== 'todos') {
+            if (p.ativo.id === ativoFiltradoId) totalInvestidoProv += p.valorInvestido;
+        } else {
+            if (p.ativo.classe === 'ACAO' || p.ativo.classe === 'FII') totalInvestidoProv += p.valorInvestido;
+        }
     });
     var yocGeral = totalInvestidoProv > 0 ? (totalGeral / totalInvestidoProv * 100) : null;
 
@@ -7386,6 +7445,14 @@ document.addEventListener('click', function (event) {
     // [DARK v1] botão de alternância de tema
     if (event.target.closest('[data-tema-toggle]')) {
         alternarTema();
+        return;
+    }
+
+    // [PERIOD v1] botões de período da rentabilidade
+    var periodoBtn = event.target.closest('[data-periodo-rentab]');
+    if (periodoBtn) {
+        _periodoRentab = periodoBtn.getAttribute('data-periodo-rentab');
+        atualizarHeatmapDOM(currentUser().id);
         return;
     }
 

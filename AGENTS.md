@@ -313,10 +313,17 @@ Histórico de versões: 4 = Modified Dietz base; 5 = preços reais via chunks B3
 
 ### Gráfico de linha acumulada
 
-`dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa)` gera séries acumuladas
+`dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro)` gera séries acumuladas
 (Carteira, CDI e IBOV) em % para Chart.js. Renderizado por `htmlChartJs`.
 Exibido dentro de `secaoRentabilidadeHTML`, que agrupa título + subtítulo +
-gráfico + heatmap.
+seletor de período + gráfico + heatmap.
+
+**Seletor de período (`[PERIOD v1]`)**: `_periodoRentab` (estado de sessão, padrão `'tudo'`)
+controla o filtro aplicado ao gráfico e ao heatmap. Valores: `'3m'`, `'6m'`, `'ytd'`, `'1a'`,
+`'tudo'`. Botões `.periodo-btn` em `.periodo-selector` alternam o estado via `data-periodo-rentab`
+e chamam `atualizarHeatmapDOM`. Quando um filtro está ativo, a série acumulada reinicia em 0%
+no início do intervalo filtrado — semanticamente correto para "últimos N meses". `heatmapCelulasHTML`
+recebe o mesmo `filtro` para exibir apenas as células do período selecionado.
 
 **Origem no zero**: a função prepende um ponto `(origemLabel, 0, 0, 0)` antes do
 primeiro mês calculado. O label vem do `primeiroMes` (mês de formação) quando
@@ -532,6 +539,13 @@ Princípios — manter consistência em telas novas:
       quando há uma única página. Scroll suave ao topo ao trocar de página. Estado
       `_paginaTransacoes` reseta ao sair da rota ou ao mudar qualquer filtro. `APP_VERSAO` 1.4.0.
 33. ✅ Modo escuro (`[DARK v1]`). Ver item 18 do roadmap.
+34. ✅ Seletor de período no gráfico de rentabilidade acumulada (`[PERIOD v1]`): botões 3M / 6M /
+      YTD / 1A / Tudo na barra do gráfico. Gráfico e heatmap filtrados em sincronia. Série
+      reinicia em 0% no início do intervalo — semanticamente correto para "últimos N meses".
+      Estado `_periodoRentab` reseta ao sair da página (junto com outros estados de sessão).
+35. ✅ YoC na página Proventos corrigido — base de custo restrita a ACAO e FII quando filtro =
+      "todos" (igual ao cálculo do Dashboard). Quando filtrado a um ativo específico, usa o custo
+      daquele ativo independente da classe.
 
 ## Preferências de trabalho
 
