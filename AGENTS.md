@@ -476,7 +476,7 @@ Princípios — manter consistência em telas novas:
 16. **Pendente**: reativar indicadores bolsai (resolver CORS ou criar proxy).
 17. **Pendente**: suporte multi-dispositivo (hoje cada browser tem sua própria
       carteira — export/import é o workaround atual).
-18. **Pendente**: modo escuro.
+18. ✅ Modo escuro (`[DARK v1]`): variáveis CSS em `@media (prefers-color-scheme: dark)` e `[data-theme="dark"]`; `--color-hero-bg` separa o fundo do KPI hero de `--color-primary`; botão `◑`/`☀` no topbar; `aplicarTema()` + `alternarTema()` com persistência em `DASH_FINANCE_THEME_V1`; cores de grade do Chart.js adaptadas por tema (`rgba(255,255,255,0.09)` no escuro); `color-scheme: dark` para inputs/selects nativos.
 19. ✅ Comparação com índices (CDI, IBOV) no gráfico acumulado de rentabilidade.
 20. ✅ Histórico de preços mensais via chunks de 90 dias (`[HIST v1]`) — corrige
       rentabilidade 0% em carteiras antigas; estratégia `startDate/endDate` no
@@ -531,6 +531,7 @@ Princípios — manter consistência em telas novas:
       à direita na barra de filtros) e no rodapé da tabela (centralizado). Controles ocultados
       quando há uma única página. Scroll suave ao topo ao trocar de página. Estado
       `_paginaTransacoes` reseta ao sair da rota ou ao mudar qualquer filtro. `APP_VERSAO` 1.4.0.
+33. ✅ Modo escuro (`[DARK v1]`). Ver item 18 do roadmap.
 
 ## Preferências de trabalho
 

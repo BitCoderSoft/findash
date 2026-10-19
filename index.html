@@ -40,6 +40,7 @@
 
     --color-brand-panel-1: #17161a;
     --color-brand-panel-2: #2b2a30;
+    --color-hero-bg: #201c1a;
 
     --radius-sm: 8px;
     --radius-md: 10px;
@@ -60,6 +61,72 @@
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
 }
+
+/* =================================================================
+   MODO ESCURO [DARK v1]
+   Variáveis sobrescritas; todo o restante do CSS usa var() e adapta
+   automaticamente. data-theme="dark" tem prioridade sobre prefers-color-scheme.
+   ================================================================= */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --color-bg: #0f1117;
+        --color-surface: #181b25;
+        --color-border: #252836;
+        --color-border-strong: #333648;
+        --color-text: #dde1ee;
+        --color-text-muted: #8990a6;
+        --color-text-subtle: #565d72;
+        --color-primary: #c9b8ae;
+        --color-primary-hover: #d8c9c0;
+        --color-primary-soft: rgba(201,184,174,0.14);
+        --color-success: #2db560;
+        --color-success-bg: rgba(45,181,96,0.12);
+        --color-danger: #f06b62;
+        --color-danger-bg: rgba(240,107,98,0.12);
+        --color-neutral-bg: #222534;
+        --color-hero-bg: #1e2130;
+        --shadow-xs: 0 1px 3px rgba(0,0,0,0.4);
+        --shadow-sm: 0 1px 3px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.3);
+        color-scheme: dark;
+    }
+    /* pill "custo de aquisição" dentro do hero card precisa de fundo visível no escuro */
+    :root:not([data-theme="light"]) .kpi-card.hero .trend.neutral {
+        background: rgba(255,255,255,0.12);
+        color: rgba(255,255,255,0.75);
+    }
+}
+:root[data-theme="dark"] {
+    --color-bg: #0f1117;
+    --color-surface: #181b25;
+    --color-border: #252836;
+    --color-border-strong: #333648;
+    --color-text: #dde1ee;
+    --color-text-muted: #8990a6;
+    --color-text-subtle: #565d72;
+    --color-primary: #c9b8ae;
+    --color-primary-hover: #d8c9c0;
+    --color-primary-soft: rgba(201,184,174,0.14);
+    --color-success: #2db560;
+    --color-success-bg: rgba(45,181,96,0.12);
+    --color-danger: #f06b62;
+    --color-danger-bg: rgba(240,107,98,0.12);
+    --color-neutral-bg: #222534;
+    --color-hero-bg: #1e2130;
+    --shadow-xs: 0 1px 3px rgba(0,0,0,0.4);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.3);
+    color-scheme: dark;
+}
+:root[data-theme="dark"] .kpi-card.hero .trend.neutral {
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.75);
+}
+
+/* Botão de alternância de tema */
+.btn-tema { width: 34px; height: 34px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+/* Controla qual ícone fica visível conforme o tema ativo */
+:root[data-theme="dark"] .tema-lua { display: none; }
+:root[data-theme="light"] .tema-sol { display: none; }
+:root:not([data-theme]) .tema-sol { display: none; }
 
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-font-smoothing: antialiased; }
@@ -200,7 +267,7 @@ a.nav-item:hover { color: var(--color-text); }
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
 .kpi-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 20px 22px 22px; display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow-xs); position: relative; overflow: hidden; }
 .kpi-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--color-border); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
-.kpi-card.hero { grid-column: span 2; background: var(--color-primary); color: #fff; border-color: transparent; box-shadow: 0 4px 16px rgba(32,28,26,0.18); }
+.kpi-card.hero { grid-column: span 2; background: var(--color-hero-bg); color: #fff; border-color: transparent; box-shadow: 0 4px 16px rgba(32,28,26,0.18); }
 .kpi-card.hero::before { background: rgba(255,255,255,0.15); }
 .kpi-label { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-subtle); }
 .kpi-card.hero .kpi-label { color: rgba(255,255,255,0.6); }
@@ -1684,6 +1751,7 @@ var IBOV_HIST_KEY  = 'DASH_FINANCE_IBOV_HIST_V1';  // histórico acumulado mensa
 var STOCK_HIST_KEY = 'DASH_FINANCE_STOCK_HIST_V1'; // histórico acumulado mensal por ticker B3 { "ITSA4": { "YYYY-MM": close } }
 var FECHAMENTOS_KEY  = 'DASH_FINANCE_FECHAMENTOS_V1'; // snapshot de cotações no fechamento { "YYYY-MM": { "TICKER": price, "IBOV": price } }
 var USDBRL_HIST_KEY  = 'DASH_FINANCE_USDBRL_HIST_V1'; // histórico acumulado mensal do USD-BRL { "YYYY-MM": close }
+var THEME_KEY        = 'DASH_FINANCE_THEME_V1';       // preferência de tema: 'light' | 'dark'
 // BCB SGS série 12 = CDI over diário (API pública, sem autenticação)
 var BCB_CDI_LATEST_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json';
 var BCB_CDI_PERIODO_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json';
@@ -2810,6 +2878,13 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa) {
 function inicializarCharts() {
     if (!window.Chart || !_chartQueue.length) return;
 
+    // [DARK v1] cores adaptadas ao tema ativo
+    var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    var gridColor   = isDark ? 'rgba(255,255,255,0.09)' : '#b0b7c3';
+    var tickColorX  = isDark ? 'rgba(255,255,255,0.35)' : '#94a3b8';
+    var tickColorY  = isDark ? 'rgba(255,255,255,0.35)' : '#64748b';
+    var legendColor = isDark ? 'rgba(255,255,255,0.45)' : '#64748b';
+
     _chartQueue.forEach(function (item) {
         var el = document.getElementById(item.id);
         if (!el) return;
@@ -2837,7 +2912,7 @@ function inicializarCharts() {
                         labels: {
                             boxWidth: 10, boxHeight: 10,
                             borderRadius: 2, useBorderRadius: true,
-                            padding: 14, color: '#64748b',
+                            padding: 14, color: legendColor,
                             font: { size: 11 },
                         },
                     },
@@ -2866,14 +2941,14 @@ function inicializarCharts() {
                         stacked: !isLine && !item.dados.noStack,
                         grid: { display: false },
                         border: { display: false },
-                        ticks: { color: '#94a3b8', font: { size: 10 } },
+                        ticks: { color: tickColorX, font: { size: 10 } },
                     },
                     y: {
                         stacked: !isLine && !item.dados.noStack,
-                        grid: { color: '#b0b7c3', lineWidth: 1, borderDash: [5, 3] },
+                        grid: { color: gridColor, lineWidth: 1, borderDash: [5, 3] },
                         border: { display: false, dash: [5, 3] },
                         ticks: {
-                            color: '#64748b', font: { size: 10 },
+                            color: tickColorY, font: { size: 10 },
                             maxTicksLimit: 6,
                             callback: function (v) { return fmt(v); },
                         },
@@ -4587,6 +4662,21 @@ function rodapeHTML() {
 }
 
 // [UI v1] "Olá, fulano" no topo, com o nome de quem está logado
+// [DARK v1] Aplica o tema salvo ao <html> antes do primeiro render.
+// Chamado no boot e após cada alternância.
+function aplicarTema() {
+    var tema = armazem.get(THEME_KEY) || 'light';
+    document.documentElement.setAttribute('data-theme', tema);
+}
+function alternarTema() {
+    var atual = armazem.get(THEME_KEY) || 'light';
+    var novo = atual === 'dark' ? 'light' : 'dark';
+    armazem.set(THEME_KEY, novo);
+    document.documentElement.setAttribute('data-theme', novo);
+    // re-renderiza a rota atual para atualizar ícone no topbar e cores dos charts
+    renderCurrentRoute();
+}
+
 function saudacaoHTML() {
     var u = currentUser();
     if (!u) return '';
@@ -4607,6 +4697,9 @@ function topbarHTML(active) {
         '<nav class="main-nav">' + item('/dashboard', 'Resumo') + item('/posicoes', 'Posições') + item('/transacoes', 'Lançamentos') + item('/proventos', 'Proventos') + item('/balanceamento', 'Balanceamento') + item('/objetivos', 'Objetivos') + item('/backup', 'Backup') + '</nav>' +
         '<div class="topbar-actions">' +
         saudacaoHTML() +
+        '<button type="button" class="button ghost btn-tema" data-tema-toggle aria-label="Alternar tema">' +
+        '<span class="tema-lua">◑</span><span class="tema-sol">☀</span>' +
+        '</button>' +
         '<button type="button" class="button primary" data-drawer-open="drawer-transacao">+ Novo lançamento</button>' +
         '<button type="button" class="button ghost" id="btn-logout" data-logout>Sair</button>' +
         '</div>' +
@@ -7290,6 +7383,12 @@ document.addEventListener('click', function (event) {
         return;
     }
 
+    // [DARK v1] botão de alternância de tema
+    if (event.target.closest('[data-tema-toggle]')) {
+        alternarTema();
+        return;
+    }
+
     // [MOBILE v1] dois botões de sair (topo e menu do celular): usa data-logout
     if (event.target.closest('[data-logout]')) {
         fecharMenuMobile();
@@ -9518,6 +9617,7 @@ document.addEventListener('change', function (event) {
 // [STORE v1] espera o banco chegar do window.storage (só no preview) antes
 // de desenhar a primeira tela; fora do preview resolve na hora
 carregarArmazenamento().then(function () {
+    aplicarTema();
     mostrarAvisoArmazenamento();
     renderCurrentRoute();
 });
