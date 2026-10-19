@@ -354,6 +354,9 @@ largura, `padding: 4px 5px` (compacto). Cores:
 - **Mês corrente** (`parcial: true`): fundo azul claro + borda tracejada + fontes
   em azul `#2563eb` — identidade visual própria, separada das células fechadas.
 
+Ver `docs/heatmap.md` para documentação detalhada do processo de fechamento,
+MTD, sequência de boot e atualização cirúrgica do DOM.
+
 ### Card "Resultado vs custo" (dashboard)
 
 O quarto KPI do Resumo exibe:
