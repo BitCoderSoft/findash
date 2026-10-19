@@ -1740,7 +1740,7 @@ var BRAPI_TICKERS_URL = 'https://brapi.dev/api/v2/tickers';
 // 30 minutos — padronizado (era 5min) pra cotação E histórico: quem acompanha
 // preço de bolsa não precisa de ciclo minuto a minuto, e isso reduz ainda mais
 // as requisições reais à brapi (decisão explícita do usuário).
-var CACHE_TTL_MS = 30 * 60 * 1000;
+var CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas — reduz volume de chamadas à brapi
 
 var DB_KEY = 'DASH_FINANCE_DB_V1';
 var SESSION_KEY = 'DASH_FINANCE_SESSION_V1';

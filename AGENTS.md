@@ -187,8 +187,10 @@ compra de jan para 5 → a venda de fev ficaria inválida".
 - **Todas** as chamadas à brapi passam por `brapiFetch()`, que serializa numa
   fila global — o plano em uso não aceita mais de 1 requisição em voo
   simultâneo para nenhum endpoint (testado: paralelo derruba a conexão).
-- Cache de **30 minutos** por símbolo (`CACHE_TTL_MS`), armazenado no
-  `armazem` sob a chave `DASH_FINANCE_QUOTE_CACHE_V1`.
+- Cache de **6 horas** por símbolo (`CACHE_TTL_MS`), armazenado no
+  `armazem` sob a chave `DASH_FINANCE_QUOTE_CACHE_V1`. O TTL é contado a partir
+  do momento da busca e persiste no `localStorage` — sobrevive ao fechar/reabrir o
+  app. Só expira se o usuário abrir o app após 6h da última busca daquele ticker.
 - Falha individual (ticker inválido, rede) não quebra o resto — símbolo
   ausente vira `null` em todos os campos derivados.
 - Quando uma cotação expira e é buscada de novo, o histórico do ticker (1mo/1d)
@@ -222,7 +224,7 @@ USDT×USDTBRL automaticamente.
 
 - Ações em alta, ações em queda, FIIs por liquidez, cripto (BTC/ETH/USDT) em
   reais — buscados via `buscarRankings()`, cache separado
-  (`DASH_FINANCE_RANKING_CACHE_V1`), também 30 minutos.
+  (`DASH_FINANCE_RANKING_CACHE_V1`), também **6 horas** (mesmo `CACHE_TTL_MS`).
 
 ### bolsai.com.br (indicadores fundamentalistas)
 
