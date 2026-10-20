@@ -121,6 +121,40 @@
     color: rgba(255,255,255,0.75);
 }
 
+/* [DARK v1] Heatmap de rentabilidade — overrides para modo escuro.
+   Problema: texto verde sobre fundo verde escuro (mesma família de cor) = baixo contraste.
+   Solução: backgrounds sólidos distintos + texto claro neutro para labels + percentual em
+   cor clara contrastante (não a mesma cor do fundo). */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .heatmap-celula.acima  { background: #162d1e; border-color: #2a5c38; }
+    :root:not([data-theme="light"]) .heatmap-celula.abaixo { background: #2d1616; border-color: #5c2a2a; }
+    :root:not([data-theme="light"]) .heatmap-celula.neutro { background: #1e2130; border-color: #2e3248; }
+    :root:not([data-theme="light"]) .heatmap-celula.parcial { background: #161e2d !important; border-color: #2a406e !important; }
+    /* Labels (mês e CDI ref): texto claro neutro para contraste sobre qualquer fundo colorido */
+    :root:not([data-theme="light"]) .heatmap-mes     { color: rgba(221,225,238,0.65); opacity: 1; }
+    :root:not([data-theme="light"]) .heatmap-cdi-ref { color: rgba(221,225,238,0.50); }
+    /* Percentual: cor clara mais brilhante que o background — não usar a mesma família de cor */
+    :root:not([data-theme="light"]) .heatmap-celula.acima  .heatmap-pct { color: #4ade80; }
+    :root:not([data-theme="light"]) .heatmap-celula.abaixo .heatmap-pct { color: #fca5a5; }
+    :root:not([data-theme="light"]) .heatmap-celula.neutro .heatmap-pct { color: rgba(221,225,238,0.75); }
+    /* Parcial: azul claro legível sobre fundo azul escuro */
+    :root:not([data-theme="light"]) .heatmap-celula.parcial .heatmap-mes { color: rgba(147,197,253,0.70); opacity: 1; }
+    :root:not([data-theme="light"]) .heatmap-celula.parcial .heatmap-pct { color: #93c5fd !important; }
+    :root:not([data-theme="light"]) .heatmap-celula.parcial .heatmap-cdi-ref { color: rgba(147,197,253,0.50); }
+}
+:root[data-theme="dark"] .heatmap-celula.acima  { background: #162d1e; border-color: #2a5c38; }
+:root[data-theme="dark"] .heatmap-celula.abaixo { background: #2d1616; border-color: #5c2a2a; }
+:root[data-theme="dark"] .heatmap-celula.neutro { background: #1e2130; border-color: #2e3248; }
+:root[data-theme="dark"] .heatmap-celula.parcial { background: #161e2d !important; border-color: #2a406e !important; }
+:root[data-theme="dark"] .heatmap-mes     { color: rgba(221,225,238,0.65); opacity: 1; }
+:root[data-theme="dark"] .heatmap-cdi-ref { color: rgba(221,225,238,0.50); }
+:root[data-theme="dark"] .heatmap-celula.acima  .heatmap-pct { color: #4ade80; }
+:root[data-theme="dark"] .heatmap-celula.abaixo .heatmap-pct { color: #fca5a5; }
+:root[data-theme="dark"] .heatmap-celula.neutro .heatmap-pct { color: rgba(221,225,238,0.75); }
+:root[data-theme="dark"] .heatmap-celula.parcial .heatmap-mes { color: rgba(147,197,253,0.70); opacity: 1; }
+:root[data-theme="dark"] .heatmap-celula.parcial .heatmap-pct { color: #93c5fd !important; }
+:root[data-theme="dark"] .heatmap-celula.parcial .heatmap-cdi-ref { color: rgba(147,197,253,0.50); }
+
 /* Botão de alternância de tema */
 .btn-tema { width: 34px; height: 34px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
 /* Controla qual ícone fica visível conforme o tema ativo */
