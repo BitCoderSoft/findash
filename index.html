@@ -9898,13 +9898,61 @@ function calcularAnalise(usuarioId) {
         });
     }
 
-    // ── saúde: posições muito negativas ──────────────────────────
+    // ── saúde: posições muito negativas + quantidade residual ─────
     var alertasSaude = [];
     posicoes.forEach(function (p) {
-        if (!p.precoAtual || !p.precoMedio) return;
-        var rentPct = (p.precoAtual - p.precoMedio) / p.precoMedio * 100;
-        if (rentPct < -20) alertasSaude.push({ ticker: p.ativo.ticker, rentPct: rentPct });
+        if (p.precoAtual && p.precoMedio) {
+            var rentPct = (p.precoAtual - p.precoMedio) / p.precoMedio * 100;
+            if (rentPct < -20) alertasSaude.push({ tipo: 'negativa', ticker: p.ativo.ticker, rentPct: rentPct });
+        }
+        // quantidade residual: só para BOLSA (Ação/FII/BDR), onde qtd deveria ser inteiro
+        // Cripto tem frações minúsculas por natureza — não é resíduo
+        if (p.quantidade > 0 && p.quantidade < 0.01 && p.ativo.classe !== 'CRIPTO' && p.ativo.classe !== 'RENDA_FIXA') {
+            alertasSaude.push({ tipo: 'residual', ticker: p.ativo.ticker, quantidade: p.quantidade });
+        }
     });
+
+    // ── proventos ─────────────────────────────────────────────────
+    var db2 = loadDB();
+    var ativosPorId2 = ativosPorIdDe(db2);
+    var hoje2 = new Date();
+    var cutoff12m = (hoje2.getFullYear() - (hoje2.getMonth() === 0 ? 1 : 0)) + '-' +
+        String(hoje2.getMonth() === 0 ? 12 : hoje2.getMonth()).padStart(2, '0');
+    // cutoff para "últimos 12 meses": ano-mês de 12 meses atrás
+    var d12 = new Date(hoje2.getFullYear(), hoje2.getMonth() - 12, 1);
+    var cutoff12 = d12.getFullYear() + '-' + String(d12.getMonth() + 1).padStart(2, '0');
+
+    var totalProv = 0, total12m = 0;
+    var totalProvRV = 0, total12mRV = 0; // só PROVENTO (renda variável) — base do YoC
+    var porClasse12m = {};
+    var mesesComProvento = {};
+    db2.transacoes.forEach(function (t) {
+        if (t.usuarioId !== usuarioId) return;
+        if (t.tipo !== 'PROVENTO' && t.tipo !== 'RENDIMENTO_RF') return;
+        var val = Number(t.valor) || 0;
+        totalProv += val;
+        if (t.tipo === 'PROVENTO') totalProvRV += val;
+        var am = t.data.slice(0, 7);
+        if (am >= cutoff12) {
+            total12m += val;
+            if (t.tipo === 'PROVENTO') total12mRV += val;
+            mesesComProvento[am] = true;
+            var ativo = ativosPorId2[t.ativoId];
+            var cl = ativo ? ativo.classe : 'OUTROS';
+            porClasse12m[cl] = (porClasse12m[cl] || 0) + val;
+        }
+    });
+
+    // YoC: base custo ACAO + FII, usando apenas proventos de renda variável
+    var custoBase = posicoes.reduce(function (s, p) {
+        return (p.ativo.classe === 'ACAO' || p.ativo.classe === 'FII') ? s + p.valorInvestido : s;
+    }, 0);
+    var yocGeral = custoBase > 0 && totalProvRV > 0 ? totalProvRV / custoBase * 100 : null;
+    var yoc12m   = custoBase > 0 && total12mRV  > 0 ? total12mRV  / custoBase * 100 : null;
+
+    // meses sem provento nos últimos 12 (só conta meses com histórico fechado)
+    var mesesHistorico = hist.filter(function (h) { return h.mes >= cutoff12; }).map(function (h) { return h.mes; });
+    var mesesSemProvento = mesesHistorico.filter(function (am) { return !mesesComProvento[am]; }).length;
 
     return {
         hist: hist,
@@ -9912,6 +9960,7 @@ function calcularAnalise(usuarioId) {
         consistencia: { mesesAcimaCDI: mesesAcimaCDI, mesesAbaixoCDI: mesesAbaixoCDI, melhorMes: melhorMes, piorMes: piorMes, maxSequNeg: maxSequNeg },
         concentracao: { alertas: alertasConc, patrimonioTotal: patrimonioTotal },
         saude: { alertas: alertasSaude },
+        proventos: { totalProv: totalProv, total12m: total12m, porClasse12m: porClasse12m, yocGeral: yocGeral, yoc12m: yoc12m, mesesSemProvento: mesesSemProvento, totalMeses12m: mesesHistorico.length },
         totalMeses: hist.length,
     };
 }
@@ -10093,7 +10142,7 @@ function renderAnalise(user) {
     if (!dados.concentracao.patrimonioTotal) {
         concHTML = '<p class="analise-vazio">Nenhuma posição encontrada.</p>';
     } else if (!dados.concentracao.alertas.length) {
-        concHTML = '<div class="analise-alerta-lista"><li class="analise-alerta">' +
+        concHTML = '<ul class="analise-alerta-lista"><li class="analise-alerta">' +
             '<span class="analise-alerta-icone">✅</span>' +
             '<div class="analise-alerta-corpo"><div class="analise-alerta-titulo">Concentração dentro dos limites</div>' +
             '<div class="analise-alerta-desc">Nenhum ativo acima de 30% nem classe acima de 60% do patrimônio.</div></div></li></ul>';
@@ -10111,20 +10160,85 @@ function renderAnalise(user) {
         concHTML += '</ul>';
     }
 
-    // ── Seção 4: Saúde ────────────────────────────────────────────
+    // ── Seção 4: Proventos ────────────────────────────────────────
+    var prov = dados.proventos;
+    var provHTML = '';
+    if (!prov.totalProv) {
+        provHTML = '<p class="analise-vazio">Nenhum provento ou rendimento registrado ainda.</p>';
+    } else {
+        var fmtR = function (v) { return 'R$ ' + v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.'); };
+        // cards de resumo
+        provHTML = '<div class="analise-grid">';
+        provHTML += '<div class="analise-card"><div class="analise-card-titulo">Total recebido</div>' +
+            '<div class="analise-card-valor">' + fmtR(prov.totalProv) + '</div>' +
+            '<div class="analise-card-detalhe">proventos + rendimentos de RF</div></div>';
+
+        if (prov.total12m > 0) {
+            provHTML += '<div class="analise-card"><div class="analise-card-titulo">Últimos 12 meses</div>' +
+                '<div class="analise-card-valor">' + fmtR(prov.total12m) + '</div>' +
+                '<div class="analise-card-detalhe">≈ ' + fmtR(prov.total12m / 12) + '/mês</div></div>';
+        }
+
+        if (prov.yocGeral != null) {
+            provHTML += '<div class="analise-card"><div class="analise-card-titulo">YoC acumulado</div>' +
+                '<div class="analise-card-valor" style="color:var(--color-success)">' + prov.yocGeral.toFixed(2).replace('.', ',') + '%</div>' +
+                '<div class="analise-card-detalhe">sobre custo em Ação + FII</div></div>';
+        }
+
+        if (prov.yoc12m != null) {
+            provHTML += '<div class="analise-card"><div class="analise-card-titulo">YoC últimos 12 meses</div>' +
+                '<div class="analise-card-valor" style="color:var(--color-success)">' + prov.yoc12m.toFixed(2).replace('.', ',') + '%</div>' +
+                '<div class="analise-card-detalhe">sobre custo em Ação + FII</div></div>';
+        }
+
+        if (prov.totalMeses12m > 0) {
+            var corConsis = prov.mesesSemProvento === 0 ? 'var(--color-success)' : (prov.mesesSemProvento <= 2 ? 'var(--color-text)' : 'var(--color-danger)');
+            provHTML += '<div class="analise-card"><div class="analise-card-titulo">Meses sem provento</div>' +
+                '<div class="analise-card-valor" style="color:' + corConsis + '">' + prov.mesesSemProvento + '</div>' +
+                '<div class="analise-card-detalhe">nos últimos ' + prov.totalMeses12m + ' meses fechados</div></div>';
+        }
+
+        provHTML += '</div>';
+
+        // YoC por classe nos últimos 12 meses
+        if (Object.keys(prov.porClasse12m).length > 1) {
+            provHTML += '<h3 style="font-size:var(--text-sm);font-weight:600;color:var(--color-text);margin:20px 0 8px">Por classe (últimos 12 meses)</h3>';
+            provHTML += '<div class="analise-aloc-grid">';
+            Object.keys(prov.porClasse12m).sort().forEach(function (cl) {
+                var val = prov.porClasse12m[cl];
+                provHTML += '<div class="analise-aloc-card">' +
+                    '<div class="analise-aloc-nome"><span class="analise-aloc-dot" style="background:' + (CORES_CLASSE[cl] || '#999') + '"></span>' + escapeHtml(CLASSES[cl] || cl) + '</div>' +
+                    '<div style="font-size:var(--text-sm);font-weight:700;color:var(--color-success);margin-top:4px">' + fmtR(val) + '</div>' +
+                    '<div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-top:2px">≈ ' + fmtR(val / 12) + '/mês</div>' +
+                    '</div>';
+            });
+            provHTML += '</div>';
+        }
+    }
+
+    // ── Seção 5: Saúde ────────────────────────────────────────────
     var saudeHTML = '';
+    var alertasNeg      = dados.saude.alertas.filter(function (a) { return a.tipo === 'negativa'; });
+    var alertasResidual = dados.saude.alertas.filter(function (a) { return a.tipo === 'residual'; });
+
     if (!dados.saude.alertas.length) {
         saudeHTML = '<ul class="analise-alerta-lista"><li class="analise-alerta">' +
             '<span class="analise-alerta-icone">✅</span>' +
-            '<div class="analise-alerta-corpo"><div class="analise-alerta-titulo">Sem posições muito negativas</div>' +
-            '<div class="analise-alerta-desc">Nenhum ativo com queda superior a 20% em relação ao preço médio de compra.</div></div></li></ul>';
+            '<div class="analise-alerta-corpo"><div class="analise-alerta-titulo">Carteira saudável</div>' +
+            '<div class="analise-alerta-desc">Nenhuma posição com queda acima de 20% do PM nem quantidade residual detectada.</div></div></li></ul>';
     } else {
         saudeHTML = '<ul class="analise-alerta-lista">';
-        dados.saude.alertas.forEach(function (a) {
+        alertasNeg.forEach(function (a) {
             saudeHTML += '<li class="analise-alerta">' +
                 '<span class="analise-alerta-icone">🔴</span>' +
-                '<div class="analise-alerta-corpo"><div class="analise-alerta-titulo">' + escapeHtml(a.ticker) + '</div>' +
-                '<div class="analise-alerta-desc">Cotação atual ' + fmtPct(a.rentPct) + ' abaixo do preço médio de compra.</div></div></li>';
+                '<div class="analise-alerta-corpo"><div class="analise-alerta-titulo">' + escapeHtml(a.ticker) + ' — posição negativa</div>' +
+                '<div class="analise-alerta-desc">Cotação atual ' + fmtPct(a.rentPct) + ' em relação ao preço médio de compra.</div></div></li>';
+        });
+        alertasResidual.forEach(function (a) {
+            saudeHTML += '<li class="analise-alerta">' +
+                '<span class="analise-alerta-icone">⚠️</span>' +
+                '<div class="analise-alerta-corpo"><div class="analise-alerta-titulo">' + escapeHtml(a.ticker) + ' — quantidade residual</div>' +
+                '<div class="analise-alerta-desc">Posição aberta com ' + a.quantidade.toFixed(6) + ' unidades. Verifique se há lançamento pendente ou erro de registro.</div></div></li>';
         });
         saudeHTML += '</ul>';
     }
@@ -10134,6 +10248,7 @@ function renderAnalise(user) {
         { id: 'benchmarks',   label: 'Benchmarks'  },
         { id: 'consistencia', label: 'Consistência' },
         { id: 'concentracao', label: 'Concentração' },
+        { id: 'proventos',    label: 'Proventos'    },
         { id: 'saude',        label: 'Saúde'        },
     ];
     var tabsHTML = '<div class="analise-tabs">' + abas.map(function (a) {
@@ -10144,6 +10259,7 @@ function renderAnalise(user) {
         '<div class="analise-secao' + (secao === 'benchmarks'   ? ' ativa' : '') + '" data-secao="benchmarks">'   + benchHTML + '</div>' +
         '<div class="analise-secao' + (secao === 'consistencia' ? ' ativa' : '') + '" data-secao="consistencia">' + consHTML  + '</div>' +
         '<div class="analise-secao' + (secao === 'concentracao' ? ' ativa' : '') + '" data-secao="concentracao">' + concHTML  + '</div>' +
+        '<div class="analise-secao' + (secao === 'proventos'    ? ' ativa' : '') + '" data-secao="proventos">'    + provHTML  + '</div>' +
         '<div class="analise-secao' + (secao === 'saude'        ? ' ativa' : '') + '" data-secao="saude">'        + saudeHTML + '</div>';
 
     return topbarHTML('/analise') +

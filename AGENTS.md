@@ -548,6 +548,25 @@ Princípios — manter consistência em telas novas:
 35. ✅ YoC na página Proventos corrigido — base de custo restrita a ACAO e FII quando filtro =
       "todos" (igual ao cálculo do Dashboard). Quando filtrado a um ativo específico, usa o custo
       daquele ativo independente da classe.
+36. ✅ Página Análise — etapa 1 (`[ANAL v1]`): rota `/analise`, topbar e menu mobile. Fluxo em
+      3 estados: intro (texto + botão "Analisar agora") → loading simulado (2,8 s, spinner +
+      lista de passos) → resultado (4 abas). Engine `calcularAnalise()` lê `historicoRentabilidade`,
+      posições e ibovMapa; calcula benchmarks por período, consistência, concentração e saúde.
+      Footer sticky em páginas com pouco conteúdo via `#app { display:flex; flex-direction:column;
+      min-height:100vh }` + `#app > main { width:100% }` + `.rodape-app { margin-top:auto }`.
+37. ✅ Página Análise — etapa 2: resumo textual determinístico no topo da aba Benchmarks
+      ("Sua carteira rendeu X% nos últimos 12 meses, superando/abaixo do CDI por N p.p.");
+      semáforos visuais nos cards (dot colorido + seta + label CDI/IBOV substituem ✓/✗ texto);
+      bloco "Alocação por classe" na aba Consistência com atual vs ideal (lê `calcularBalanceamento`
+      + `lerBalanceamento`) e desvio em p.p. com cor — mostra aviso se ideais não definidos.
+38. ✅ Página Análise — etapas 3 e 4: aba Proventos com cards Total recebido, Últimos 12 meses,
+      YoC acumulado, YoC 12m e Meses sem provento; grid "Por classe" quando há mais de uma classe
+      pagadora. `calcularAnalise` inclui `RENDIMENTO_RF` no total de proventos (além de `PROVENTO`);
+      YoC calculado separadamente só sobre proventos de renda variável (ACAO+FII). Aba Saúde com
+      alertas de posição negativa (< −20% do PM) e quantidade residual — residual restrito a classes
+      BOLSA (ACAO/FII/BDR), excluindo CRIPTO onde frações pequenas são normais. Corrigido HTML
+      malformado na aba Concentração (`<div>` → `<ul>` na mensagem "dentro dos limites") que causava
+      as abas Proventos e Saúde ficarem aninhadas dentro do div de Concentração e invisíveis.
 
 ## Preferências de trabalho
 
