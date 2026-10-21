@@ -187,8 +187,10 @@ compra de jan para 5 → a venda de fev ficaria inválida".
 - **Todas** as chamadas à brapi passam por `brapiFetch()`, que serializa numa
   fila global — o plano em uso não aceita mais de 1 requisição em voo
   simultâneo para nenhum endpoint (testado: paralelo derruba a conexão).
-- Cache de **30 minutos** por símbolo (`CACHE_TTL_MS`), armazenado no
-  `armazem` sob a chave `DASH_FINANCE_QUOTE_CACHE_V1`.
+- Cache de **6 horas** por símbolo (`CACHE_TTL_MS`), armazenado no
+  `armazem` sob a chave `DASH_FINANCE_QUOTE_CACHE_V1`. O TTL é contado a partir
+  do momento da busca e persiste no `localStorage` — sobrevive ao fechar/reabrir o
+  app. Só expira se o usuário abrir o app após 6h da última busca daquele ticker.
 - Falha individual (ticker inválido, rede) não quebra o resto — símbolo
   ausente vira `null` em todos os campos derivados.
 - Quando uma cotação expira e é buscada de novo, o histórico do ticker (1mo/1d)
@@ -222,7 +224,7 @@ USDT×USDTBRL automaticamente.
 
 - Ações em alta, ações em queda, FIIs por liquidez, cripto (BTC/ETH/USDT) em
   reais — buscados via `buscarRankings()`, cache separado
-  (`DASH_FINANCE_RANKING_CACHE_V1`), também 30 minutos.
+  (`DASH_FINANCE_RANKING_CACHE_V1`), também **6 horas** (mesmo `CACHE_TTL_MS`).
 
 ### bolsai.com.br (indicadores fundamentalistas)
 
@@ -313,10 +315,17 @@ Histórico de versões: 4 = Modified Dietz base; 5 = preços reais via chunks B3
 
 ### Gráfico de linha acumulada
 
-`dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa)` gera séries acumuladas
+`dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro)` gera séries acumuladas
 (Carteira, CDI e IBOV) em % para Chart.js. Renderizado por `htmlChartJs`.
 Exibido dentro de `secaoRentabilidadeHTML`, que agrupa título + subtítulo +
-gráfico + heatmap.
+seletor de período + gráfico + heatmap.
+
+**Seletor de período (`[PERIOD v1]`)**: `_periodoRentab` (estado de sessão, padrão `'tudo'`)
+controla o filtro aplicado ao gráfico e ao heatmap. Valores: `'3m'`, `'6m'`, `'ytd'`, `'1a'`,
+`'tudo'`. Botões `.periodo-btn` em `.periodo-selector` alternam o estado via `data-periodo-rentab`
+e chamam `atualizarHeatmapDOM`. Quando um filtro está ativo, a série acumulada reinicia em 0%
+no início do intervalo filtrado — semanticamente correto para "últimos N meses". `heatmapCelulasHTML`
+recebe o mesmo `filtro` para exibir apenas as células do período selecionado.
 
 **Origem no zero**: a função prepende um ponto `(origemLabel, 0, 0, 0)` antes do
 primeiro mês calculado. O label vem do `primeiroMes` (mês de formação) quando
@@ -353,6 +362,9 @@ largura, `padding: 4px 5px` (compacto). Cores:
 - **Formação** (`primeiroMes`): neutro com texto "formação / sem base".
 - **Mês corrente** (`parcial: true`): fundo azul claro + borda tracejada + fontes
   em azul `#2563eb` — identidade visual própria, separada das células fechadas.
+
+Ver `docs/heatmap.md` para documentação detalhada do processo de fechamento,
+MTD, sequência de boot e atualização cirúrgica do DOM.
 
 ### Card "Resultado vs custo" (dashboard)
 
@@ -473,7 +485,7 @@ Princípios — manter consistência em telas novas:
 16. **Pendente**: reativar indicadores bolsai (resolver CORS ou criar proxy).
 17. **Pendente**: suporte multi-dispositivo (hoje cada browser tem sua própria
       carteira — export/import é o workaround atual).
-18. **Pendente**: modo escuro.
+18. ✅ Modo escuro (`[DARK v1]`): variáveis CSS em `@media (prefers-color-scheme: dark)` e `[data-theme="dark"]`; `--color-hero-bg` separa o fundo do KPI hero de `--color-primary`; botão `◑`/`☀` no topbar; `aplicarTema()` + `alternarTema()` com persistência em `DASH_FINANCE_THEME_V1`; cores de grade do Chart.js adaptadas por tema (`rgba(255,255,255,0.09)` no escuro); `color-scheme: dark` para inputs/selects nativos.
 19. ✅ Comparação com índices (CDI, IBOV) no gráfico acumulado de rentabilidade.
 20. ✅ Histórico de preços mensais via chunks de 90 dias (`[HIST v1]`) — corrige
       rentabilidade 0% em carteiras antigas; estratégia `startDate/endDate` no
@@ -528,6 +540,33 @@ Princípios — manter consistência em telas novas:
       à direita na barra de filtros) e no rodapé da tabela (centralizado). Controles ocultados
       quando há uma única página. Scroll suave ao topo ao trocar de página. Estado
       `_paginaTransacoes` reseta ao sair da rota ou ao mudar qualquer filtro. `APP_VERSAO` 1.4.0.
+33. ✅ Modo escuro (`[DARK v1]`). Ver item 18 do roadmap.
+34. ✅ Seletor de período no gráfico de rentabilidade acumulada (`[PERIOD v1]`): botões 3M / 6M /
+      YTD / 1A / Tudo na barra do gráfico. Gráfico e heatmap filtrados em sincronia. Série
+      reinicia em 0% no início do intervalo — semanticamente correto para "últimos N meses".
+      Estado `_periodoRentab` reseta ao sair da página (junto com outros estados de sessão).
+35. ✅ YoC na página Proventos corrigido — base de custo restrita a ACAO e FII quando filtro =
+      "todos" (igual ao cálculo do Dashboard). Quando filtrado a um ativo específico, usa o custo
+      daquele ativo independente da classe.
+36. ✅ Página Análise — etapa 1 (`[ANAL v1]`): rota `/analise`, topbar e menu mobile. Fluxo em
+      3 estados: intro (texto + botão "Analisar agora") → loading simulado (2,8 s, spinner +
+      lista de passos) → resultado (4 abas). Engine `calcularAnalise()` lê `historicoRentabilidade`,
+      posições e ibovMapa; calcula benchmarks por período, consistência, concentração e saúde.
+      Footer sticky em páginas com pouco conteúdo via `#app { display:flex; flex-direction:column;
+      min-height:100vh }` + `#app > main { width:100% }` + `.rodape-app { margin-top:auto }`.
+37. ✅ Página Análise — etapa 2: resumo textual determinístico no topo da aba Benchmarks
+      ("Sua carteira rendeu X% nos últimos 12 meses, superando/abaixo do CDI por N p.p.");
+      semáforos visuais nos cards (dot colorido + seta + label CDI/IBOV substituem ✓/✗ texto);
+      bloco "Alocação por classe" na aba Consistência com atual vs ideal (lê `calcularBalanceamento`
+      + `lerBalanceamento`) e desvio em p.p. com cor — mostra aviso se ideais não definidos.
+38. ✅ Página Análise — etapas 3 e 4: aba Proventos com cards Total recebido, Últimos 12 meses,
+      YoC acumulado, YoC 12m e Meses sem provento; grid "Por classe" quando há mais de uma classe
+      pagadora. `calcularAnalise` inclui `RENDIMENTO_RF` no total de proventos (além de `PROVENTO`);
+      YoC calculado separadamente só sobre proventos de renda variável (ACAO+FII). Aba Saúde com
+      alertas de posição negativa (< −20% do PM) e quantidade residual — residual restrito a classes
+      BOLSA (ACAO/FII/BDR), excluindo CRIPTO onde frações pequenas são normais. Corrigido HTML
+      malformado na aba Concentração (`<div>` → `<ul>` na mensagem "dentro dos limites") que causava
+      as abas Proventos e Saúde ficarem aninhadas dentro do div de Concentração e invisíveis.
 
 ## Preferências de trabalho
 
