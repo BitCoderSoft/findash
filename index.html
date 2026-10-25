@@ -1868,6 +1868,7 @@ var CDI_CACHE_KEY = 'DASH_FINANCE_CDI_CACHE_V1';
 var HIST_MENSAL_CACHE_KEY = 'DASH_FINANCE_HIST_MENSAL_V1';
 var HIST_MENSAL_TTL_MS = 24 * 60 * 60 * 1000;
 var IBOV_HIST_KEY  = 'DASH_FINANCE_IBOV_HIST_V1';  // histórico acumulado mensal do IBOV
+var IFIX_HIST_KEY  = 'DASH_FINANCE_IFIX_HIST_V1';  // histórico acumulado mensal do IFIX
 var STOCK_HIST_KEY = 'DASH_FINANCE_STOCK_HIST_V1'; // histórico acumulado mensal por ticker B3 { "ITSA4": { "YYYY-MM": close } }
 var FECHAMENTOS_KEY  = 'DASH_FINANCE_FECHAMENTOS_V1'; // snapshot de cotações no fechamento { "YYYY-MM": { "TICKER": price, "IBOV": price } }
 var USDBRL_HIST_KEY  = 'DASH_FINANCE_USDBRL_HIST_V1'; // histórico acumulado mensal do USD-BRL { "YYYY-MM": close }
@@ -2885,7 +2886,7 @@ function htmlChartJs(id, dados, formatoY, altura, tipo) {
 // Inclui MTD (mês corrente parcial) se fornecido. Todas as linhas partem de 0%
 // O primeiro mês da carteira é a origem (0%); seu retorno entra no acumulado dos meses seguintes.
 // Retorna null se não houver nenhum ponto válido.
-function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro) {
+function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro, ifixMapa) {
     var db = loadDB();
     var todoHist = (db.historicoRentabilidade || []).filter(function (h) {
         return h.usuarioId === usuarioId;
@@ -2926,10 +2927,13 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro) {
     var serieCart = [];
     var serieCdi = [];
     var serieIbov = [];
+    var serieIfix = [];
     var acumCart = 1;
     var acumCdi = 1;
     var acumIbov = 1;
+    var acumIfix = 1;
     var temIbov = ibovMapa && Object.keys(ibovMapa).length > 0;
+    var temIfix = ifixMapa && Object.keys(ifixMapa).filter(function(k){return k[0]!=='_';}).length > 0;
 
     // Origem = primeiro mês real da carteira a 0% (estilo Investidor10).
     // O retorno do primeiro mês entra no acumulado mas não gera ponto visual separado:
@@ -2940,6 +2944,7 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro) {
     serieCart.push(0);
     serieCdi.push(0);
     if (temIbov) serieIbov.push(0);
+    if (temIfix) serieIfix.push(0);
 
     pontos.forEach(function (h, idx) {
         // Acumula o retorno do mês (inclusive do primeiro)
@@ -2953,6 +2958,13 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro) {
             var ibovRet = (ibovFim && ibovIni) ? (ibovFim / ibovIni - 1) : 0;
             acumIbov *= (1 + ibovRet);
         }
+        if (temIfix) {
+            var prevMI = _mesAnterior(h.mes);
+            var ifixFim = ifixMapa[h.mes];
+            var ifixIni = ifixMapa[prevMI];
+            var ifixRet = (ifixFim && ifixIni) ? (ifixFim / ifixIni - 1) : 0;
+            acumIfix *= (1 + ifixRet);
+        }
         // O primeiro mês É a origem (0%) — seu retorno só aparece no ponto seguinte
         if (idx === 0) return;
         var partes = h.mes.split('-');
@@ -2962,6 +2974,7 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro) {
         serieCart.push(+( (acumCart - 1) * 100 ).toFixed(4));
         serieCdi.push(+( (acumCdi - 1) * 100 ).toFixed(4));
         if (temIbov) serieIbov.push(+( (acumIbov - 1) * 100 ).toFixed(4));
+        if (temIfix) serieIfix.push(+( (acumIfix - 1) * 100 ).toFixed(4));
     });
 
     var datasets = [
@@ -3004,6 +3017,22 @@ function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro) {
             pointBackgroundColor: '#dc2626',
             borderWidth: 2,
             borderDash: [4, 3],
+            hidden: true,
+        });
+    }
+    if (temIfix) {
+        datasets.push({
+            label: 'IFIX',
+            data: serieIfix,
+            borderColor: '#16a34a',
+            backgroundColor: 'transparent',
+            fill: false,
+            tension: 0.25,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: '#16a34a',
+            borderWidth: 2,
+            borderDash: [2, 2],
             hidden: true,
         });
     }
@@ -4143,6 +4172,12 @@ function loadIBOVHist() {
 function saveIBOVHist(mapa) {
     try { armazem.set(IBOV_HIST_KEY, JSON.stringify(mapa)); } catch (e) {}
 }
+function loadIfixHist() {
+    try { var r = armazem.get(IFIX_HIST_KEY); return r ? JSON.parse(r) : {}; } catch (e) { return {}; }
+}
+function saveIfixHist(mapa) {
+    try { armazem.set(IFIX_HIST_KEY, JSON.stringify(mapa)); } catch (e) {}
+}
 function loadStockHist() {
     try { var r = armazem.get(STOCK_HIST_KEY); return r ? JSON.parse(r) : {}; } catch (e) { return {}; }
 }
@@ -4266,6 +4301,52 @@ function buscarPrecosMensaisIBOV(dataInicio) {
         return hist;
     }).catch(function () {
         _ibovMapaCache = hist;
+        return hist;
+    });
+}
+
+// [IFIX v1] buscarPrecosMensaisIFIX — mesma arquitetura de chunks que IBOV.
+// Usa XFIX11 (ETF B3 que replica o IFIX) pois a brapi não expõe ^IFIX como índice.
+// Sempre buscado — serve como referência comparativa independente da composição da carteira.
+function buscarPrecosMensaisIFIX(dataInicio) {
+    var hist     = loadIfixHist();
+    var hoje     = hojeISO();
+    var mesAtual = hoje.slice(0, 7);
+    var mesPrev  = _mesAnterior(mesAtual);
+
+    if (!dataInicio) {
+        var d1a = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+        dataInicio = d1a.toISOString().slice(0, 10);
+    }
+
+    var primMesNec = dataInicio.slice(0, 7);
+    var mesPrevOk  = hist['_mesPrevOk'] || null;
+    var mesesCobr  = Object.keys(hist).filter(function(k) { return k[0] !== '_'; }).sort();
+    var priMesCobr = mesesCobr[0] || null;
+    var coberto    = priMesCobr && priMesCobr <= primMesNec && hist[mesAtual] && mesPrevOk === mesAtual;
+
+    if (coberto) {
+        _ifixMapaCache = hist;
+        return Promise.resolve(hist);
+    }
+
+    var fetchInicio = dataInicio;
+    if (priMesCobr && priMesCobr <= primMesNec && !hist[mesAtual]) {
+        var d90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        fetchInicio = d90.toISOString().slice(0, 10);
+    } else if (priMesCobr && priMesCobr <= primMesNec && mesPrevOk !== mesAtual) {
+        var d90b = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        fetchInicio = d90b.toISOString().slice(0, 10);
+    }
+    var chunks = gerarChunks(fetchInicio, hoje);
+
+    return _fetchChunksB3('XFIX11', chunks, hist, mesAtual, mesPrev).then(function () {
+        hist['_mesPrevOk'] = mesAtual;
+        if (Object.keys(hist).length) saveIfixHist(hist);
+        _ifixMapaCache = hist;
+        return hist;
+    }).catch(function () {
+        _ifixMapaCache = hist;
         return hist;
     });
 }
@@ -5734,6 +5815,7 @@ function rentabilidadeCarteiraMes(usuarioId, anoMes, precosMensaisPorTicker) {
 // [RENT v4] Cache de MTD (mês corrente parcial) — 1× por abertura do app
 var _mtdCache = null;
 var _ibovMapaCache = null; // sessão: preços mensais IBOV { "YYYY-MM": price }
+var _ifixMapaCache = null; // sessão: preços mensais IFIX { "YYYY-MM": price }
 
 function _anoMesAtual() {
     var h = new Date();
@@ -5934,13 +6016,15 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
         }
     });
     var promessaIBOV   = primeiraDataB3        ? buscarPrecosMensaisIBOV(primeiraDataB3)           : Promise.resolve({});
+    var promessaIFIX   = buscarPrecosMensaisIFIX(primeiraDataB3 || primeiraDataQualquer);           // [IFIX v1] sempre buscado
     // [USDBRL v1] taxa de câmbio mensal para referência em relatórios externos
     var promessaUsdBrl = primeiraDataQualquer   ? buscarUsdBrlMensal(primeiraDataQualquer)          : Promise.resolve({});
 
-    return Promise.all([Promise.all(promessasPrecos), promessaIBOV, promessaUsdBrl]).then(function (ambos) {
+    return Promise.all([Promise.all(promessasPrecos), promessaIBOV, promessaUsdBrl, promessaIFIX]).then(function (ambos) {
         var resultados  = ambos[0];
         var ibovMapa    = ambos[1] || {};
         var usdBrlMapa  = ambos[2] || {};
+        var ifixMapa    = ambos[3] || {};
         var precosMensaisPorTicker = {};
         resultados.forEach(function (r) { precosMensaisPorTicker[r.ticker] = r.mapa; });
 
@@ -5990,6 +6074,7 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                                 if (p) snap[tk] = p;
                             });
                             if (ibovMapa[am])   snap['IBOV']   = ibovMapa[am];
+                            if (ifixMapa[am])   snap['IFIX']   = ifixMapa[am];
                             if (usdBrlMapa[am]) snap['USDBRL'] = usdBrlMapa[am];
                             fechamentos[am] = snap;
                             saveCotacoesFechamento(fechamentos);
@@ -6012,8 +6097,10 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                 if (fechAtual[h.mes]) {
                     // Snapshot existe: atualizar IBOV/USDBRL se o valor mudou
                     var ibovNovo   = ibovMapa[h.mes];
+                    var ifixNovo   = ifixMapa[h.mes];
                     var usdBrlNovo = usdBrlMapa[h.mes];
                     if (ibovNovo   && fechAtual[h.mes]['IBOV']   !== ibovNovo)   { fechAtual[h.mes]['IBOV']   = ibovNovo;   temNovo = true; }
+                    if (ifixNovo   && fechAtual[h.mes]['IFIX']   !== ifixNovo)   { fechAtual[h.mes]['IFIX']   = ifixNovo;   temNovo = true; }
                     if (usdBrlNovo && fechAtual[h.mes]['USDBRL'] !== usdBrlNovo) { fechAtual[h.mes]['USDBRL'] = usdBrlNovo; temNovo = true; }
                     return;
                 }
@@ -6023,6 +6110,7 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                     if (p) snap[tk] = p;
                 });
                 if (ibovMapa[h.mes])   snap['IBOV']   = ibovMapa[h.mes];
+                if (ifixMapa[h.mes])   snap['IFIX']   = ifixMapa[h.mes];
                 if (usdBrlMapa[h.mes]) snap['USDBRL'] = usdBrlMapa[h.mes];
                 if (Object.keys(snap).length > 0) {
                     fechAtual[h.mes] = snap;
@@ -6128,14 +6216,16 @@ function popularCotacoesFechamentoRetroativo(usuarioId) {
     var fechamentos = loadCotacoesFechamento();
     var sh = loadStockHist();
     var ih = loadIBOVHist();
+    var ifh = loadIfixHist();
     var uh = loadUsdBrlHist();
     var temNovo = false;
     (db.historicoRentabilidade || []).forEach(function (h) {
         if (h.usuarioId !== usuarioId || fechamentos[h.mes]) return;
         var snap = {};
         Object.keys(sh).forEach(function (tk) { var p = sh[tk][h.mes]; if (p) snap[tk] = p; });
-        if (ih[h.mes]) snap['IBOV']   = ih[h.mes];
-        if (uh[h.mes]) snap['USDBRL'] = uh[h.mes];
+        if (ih[h.mes])  snap['IBOV']   = ih[h.mes];
+        if (ifh[h.mes]) snap['IFIX']   = ifh[h.mes];
+        if (uh[h.mes])  snap['USDBRL'] = uh[h.mes];
         if (Object.keys(snap).length > 0) { fechamentos[h.mes] = snap; temNovo = true; }
     });
     if (temNovo) saveCotacoesFechamento(fechamentos);
@@ -6145,7 +6235,7 @@ function popularCotacoesFechamentoRetroativo(usuarioId) {
 function atualizarHeatmapDOM(usuarioId) {
     var container = document.getElementById('rentab-bloco');
     if (!container) return;
-    container.outerHTML = secaoRentabilidadeHTML(usuarioId, null, _ibovMapaCache);
+    container.outerHTML = secaoRentabilidadeHTML(usuarioId, null, _ibovMapaCache, _ifixMapaCache);
     inicializarCharts();
 }
 
@@ -6197,11 +6287,12 @@ function heatmapCelulasHTML(usuarioId, mtd, filtro) {
 }
 
 // [RENT v4] Bloco completo: gráfico de linhas acumuladas + heatmap mês a mês
-function secaoRentabilidadeHTML(usuarioId, mtd, ibovMapa) {
+function secaoRentabilidadeHTML(usuarioId, mtd, ibovMapa, ifixMapa) {
     mtd = mtd || _mtdCache;
     ibovMapa = ibovMapa || _ibovMapaCache || {};
+    ifixMapa = ifixMapa || _ifixMapaCache || {};
     var filtro = _periodoRentab || 'tudo';
-    var dadosLinha = dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro);
+    var dadosLinha = dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro, ifixMapa);
     var graficoHTML;
     if (dadosLinha) {
         graficoHTML = htmlChartJs(
@@ -6338,13 +6429,16 @@ function renderDashboard(user) {
     var rankingsPromise = buscarRankingsResumo();
     var cdiPromise = buscarCDI(); // [CDI v1] uma chamada por dia, via cache
     var ibovPromise = buscarPrecosMensaisIBOV(primDateBolsa); // [HIST v1] histórico mensal ^BVSP desde o primeiro lançamento
+    var ifixPromise = buscarPrecosMensaisIFIX(primDateBolsa); // [IFIX v1] histórico mensal ^IFIX — referência para FIIs
 
-    return Promise.all([cotacaoPromise, rankingsPromise, cdiPromise, ibovPromise]).then(function (resultadosPromise) {
+    return Promise.all([cotacaoPromise, rankingsPromise, cdiPromise, ibovPromise, ifixPromise]).then(function (resultadosPromise) {
         var cotacoes = resultadosPromise[0];
         var rankings = resultadosPromise[1];
         var cdiHoje = resultadosPromise[2]; // { cdiDiario, cdiMesEst, data } ou null
         var ibovMapa = resultadosPromise[3] || {};
+        var ifixMapa = resultadosPromise[4] || {};
         _ibovMapaCache = ibovMapa;
+        _ifixMapaCache = ifixMapa;
         aplicarCotacoesLista(posicoes, cotacoes);
 
         var kpis = calcularKpis(user.id);
@@ -6516,7 +6610,7 @@ function renderDashboard(user) {
             kpiPosicoesHTML +
             '</div>' +
             '<div class="panel-grid">' + evolucaoHTML + alocacaoHTML + '</div>' +
-            secaoRentabilidadeHTML(user.id, mtdAgora, ibovMapa) +
+            secaoRentabilidadeHTML(user.id, mtdAgora, ibovMapa, ifixMapa) +
             renderRankingsHTML(rankings) +
             '</main>' + rodapeHTML() + '</div>' +
             drawerTransacaoHTML(drawerState) +
@@ -9257,9 +9351,15 @@ function montarBackup(usuarioId) {
         // mesAtual: mês em andamento — dados desse mês no stockHist são parciais.
         mesAtual: hojeISO().slice(0, 7),
         stockHist: loadStockHist(),
-        // ibovHist exportado sem chaves de controle interno (prefixo _)
+        // ibovHist / ifixHist exportados sem chaves de controle interno (prefixo _)
         ibovHist: (function () {
             var h = loadIBOVHist();
+            var limpo = {};
+            Object.keys(h).forEach(function (k) { if (k[0] !== '_') limpo[k] = h[k]; });
+            return limpo;
+        }()),
+        ifixHist: (function () {
+            var h = loadIfixHist();
             var limpo = {};
             Object.keys(h).forEach(function (k) { if (k[0] !== '_') limpo[k] = h[k]; });
             return limpo;
@@ -9485,6 +9585,7 @@ function validarBackup(texto) {
             historicoRentabilidade: Array.isArray(obj.historicoRentabilidade) ? obj.historicoRentabilidade : null,
             stockHist: obj.stockHist && typeof obj.stockHist === 'object' ? obj.stockHist : null, // [HIST v1]
             ibovHist: obj.ibovHist && typeof obj.ibovHist === 'object' ? obj.ibovHist : null,     // [HIST v1]
+            ifixHist: obj.ifixHist && typeof obj.ifixHist === 'object' ? obj.ifixHist : null,     // [IFIX v1]
             cotacoesFechamento: obj.cotacoesFechamento && typeof obj.cotacoesFechamento === 'object' ? obj.cotacoesFechamento : null, // [FECH v1]
         },
         resumo: {
@@ -9585,6 +9686,7 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
     // de versões anteriores — o boot vai re-popular via fetch.
     saveStockHist(dados.stockHist || {});
     saveIBOVHist(dados.ibovHist || {});
+    saveIfixHist(dados.ifixHist || {});
     // [USDBRL v1] restaura histórico USD-BRL (limpa se ausente no backup)
     saveUsdBrlHist(dados.usdBrlHist || {});
     // [FECH v1] restaura snapshot de cotações de fechamento (limpa se ausente)

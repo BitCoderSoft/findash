@@ -409,6 +409,7 @@ Chaves do sistema:
 | `DASH_FINANCE_HIST_CACHE_V1` | Cache de histórico de preço (detalhe do ativo) |
 | `DASH_FINANCE_RANKING_CACHE_V1` | Cache de rankings de mercado |
 | `DASH_FINANCE_IBOV_HIST_V1` | Histórico acumulado mensal do IBOV (`{ "YYYY-MM": close, "_mesPrevOk": "YYYY-MM" }`) |
+| `DASH_FINANCE_IFIX_HIST_V1` | Histórico acumulado mensal do IFIX (`{ "YYYY-MM": close, "_mesPrevOk": "YYYY-MM" }`) |
 | `DASH_FINANCE_STOCK_HIST_V1` | Histórico acumulado mensal por ticker B3 (`{ "ITSA4": { "YYYY-MM": close } }`) |
 | `DASH_FINANCE_USDBRL_HIST_V1` | Histórico acumulado mensal USD-BRL via BCB SGS 1 (`{ "YYYY-MM": close }`) |
 | `DASH_FINANCE_FECHAMENTOS_V1` | Snapshot de cotações no fechamento (`{ "YYYY-MM": { "TICKER": price, "IBOV": price, "USDBRL": price } }`) |
@@ -486,7 +487,7 @@ Princípios — manter consistência em telas novas:
 17. **Pendente**: suporte multi-dispositivo (hoje cada browser tem sua própria
       carteira — export/import é o workaround atual).
 18. ✅ Modo escuro (`[DARK v1]`): variáveis CSS em `@media (prefers-color-scheme: dark)` e `[data-theme="dark"]`; `--color-hero-bg` separa o fundo do KPI hero de `--color-primary`; botão `◑`/`☀` no topbar; `aplicarTema()` + `alternarTema()` com persistência em `DASH_FINANCE_THEME_V1`; cores de grade do Chart.js adaptadas por tema (`rgba(255,255,255,0.09)` no escuro); `color-scheme: dark` para inputs/selects nativos.
-19. ✅ Comparação com índices (CDI, IBOV) no gráfico acumulado de rentabilidade.
+19. ✅ Comparação com índices (CDI, IBOV, IFIX) no gráfico acumulado de rentabilidade.
 20. ✅ Histórico de preços mensais via chunks de 90 dias (`[HIST v1]`) — corrige
       rentabilidade 0% em carteiras antigas; estratégia `startDate/endDate` no
       plano free brapi; fechamentos acumulados em localStorage permanente;
@@ -559,6 +560,12 @@ Princípios — manter consistência em telas novas:
       semáforos visuais nos cards (dot colorido + seta + label CDI/IBOV substituem ✓/✗ texto);
       bloco "Alocação por classe" na aba Consistência com atual vs ideal (lê `calcularBalanceamento`
       + `lerBalanceamento`) e desvio em p.p. com cor — mostra aviso se ideais não definidos.
+40. ✅ IFIX no gráfico acumulado de rentabilidade (`[IFIX v1]`): `buscarPrecosMensaisIFIX` via `XFIX11` na brapi (ETF B3
+      que replica o IFIX — brapi não expõe `^IFIX` como índice direto). Mesma
+      arquitetura de chunks de 90 dias do IBOV). Sempre buscado independente de haver FII na carteira — serve como
+      referência comparativa de diversificação. Série verde (`#16a34a`), tracejada curta (`[2,2]`), oculta por padrão.
+      `ifixHist` persistido em `DASH_FINANCE_IFIX_HIST_V1`; exportado/importado no backup. `IFIX` gravado nos
+      snapshots `cotacoesFechamento` junto com `IBOV`. `_ifixMapaCache` para reutilização na sessão.
 39. ✅ Classe ETF (`[ETF v1]`): nova classe `'ETF'` (cyan `#0891b2`) no mercado BOLSA. Mesmas
       colunas de Posições que Ação (Quantidade, Preço médio, Preço atual, Rentabilidade, Total
       investido, Saldo atual, Proventos, % da carteira). ETF aparece em: Balanceamento, Simulador
