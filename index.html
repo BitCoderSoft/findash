@@ -2371,21 +2371,22 @@ function posicoesRF(usuarioId) {
         if (t.usuarioId !== usuarioId) return;
         var ativo = ativosPorId[t.ativoId];
         if (!ativo || ativo.classe !== 'RENDA_FIXA') return;
-        if (!mapa[t.ativoId]) mapa[t.ativoId] = { ativo: ativo, aportado: 0, rendimento: 0 };
-        if (t.tipo === 'APORTE') mapa[t.ativoId].aportado += Number(t.valor) || 0;
+        if (!mapa[t.ativoId]) mapa[t.ativoId] = { ativo: ativo, aportado: 0, rendimento: 0, resgatado: 0 };
+        if (t.tipo === 'APORTE')        mapa[t.ativoId].aportado   += Number(t.valor) || 0;
         if (t.tipo === 'RENDIMENTO_RF') mapa[t.ativoId].rendimento += Number(t.valor) || 0;
+        if (t.tipo === 'RESGATE')       mapa[t.ativoId].resgatado  += Number(t.valor) || 0;
     });
     return Object.keys(mapa).map(function (k) {
         var p = mapa[k];
-        p.saldo = p.aportado + p.rendimento;
+        p.saldo = p.aportado + p.rendimento - p.resgatado;
         p.yieldPct = p.aportado > 0 ? (p.rendimento / p.aportado) * 100 : 0;
         return p;
     }).sort(function (a, b) { return b.aportado - a.aportado; });
 }
 
-// [RF v1] total aportado em RF (entra no valorInvestido total da carteira)
+// [RF v1] saldo líquido de RF (aportado + rendimento − resgatado); entra no valorInvestido.
 function totalAportadoRF(usuarioId) {
-    return posicoesRF(usuarioId).reduce(function (s, p) { return s + p.aportado; }, 0);
+    return posicoesRF(usuarioId).reduce(function (s, p) { return s + Math.max(0, p.saldo); }, 0);
 }
 
 // Porte de quantidade_disponivel: saldo líquido de HOJE (sem olhar datas).
@@ -2563,7 +2564,7 @@ function calcularKpis(usuarioId) {
     var valorInvestido = abertas.reduce(function (s, p) { return s + p.custoTotal; }, 0);
     // [RF v1] soma o aportado em renda fixa no total investido
     valorInvestido += totalAportadoRF(usuarioId);
-    var numPosicoes = abertas.length + posicoesRF(usuarioId).length;
+    var numPosicoes = abertas.length + posicoesRF(usuarioId).filter(function (p) { return p.saldo > 0; }).length;
     return { valorInvestido: valorInvestido, numPosicoes: numPosicoes, lucroPrejuizo: null, rentabilidade: null };
 }
 
@@ -2610,10 +2611,12 @@ function evolucaoMensal(usuarioId) {
     transacoes.forEach(function (t) {
         var partes = t.data.split('-');
         var chave = partes[0] + '-' + parseInt(partes[1], 10);
-        // APORTEs de RF: delta = valor do aporte (processarCarteira ignora tipo=APORTE)
+        // APORTEs de RF: delta positivo; RESGATEs de RF: delta negativo
         var ativo = ativosPorId[t.ativoId];
         if (t.tipo === 'APORTE' && ativo && ativo.classe === 'RENDA_FIXA') {
             deltasPorMes[chave] = (deltasPorMes[chave] || 0) + (Number(t.valor) || 0);
+        } else if (t.tipo === 'RESGATE' && ativo && ativo.classe === 'RENDA_FIXA') {
+            deltasPorMes[chave] = (deltasPorMes[chave] || 0) - (Number(t.valor) || 0);
         } else {
             deltasPorMes[chave] = (deltasPorMes[chave] || 0) + (deltaCusto[t.id] || 0);
         }
@@ -4549,9 +4552,9 @@ function showMessage(text, tag) {
 var TIPOS_POR_MERCADO = {
     BOLSA: ['COMPRA', 'VENDA', 'PROVENTO'], // [PROV v1] provento só em bolsa
     CRIPTO: ['COMPRA', 'VENDA', 'ENTRADA', 'SAIDA', 'CONVERSAO', 'STAKE'], // [STAKE v1] rendimento de staking
-    RENDA_FIXA: ['APORTE', 'RENDIMENTO_RF'], // [RF v1] sem cotação de mercado
+    RENDA_FIXA: ['APORTE', 'RENDIMENTO_RF', 'RESGATE'], // [RF v1] sem cotação de mercado
 };
-var TIPOS_LABEL = { COMPRA: 'Compra', VENDA: 'Venda', ENTRADA: 'Entrada', SAIDA: 'Saída', CONVERSAO: 'Conversão', PROVENTO: 'Provento', APORTE: 'Aporte', RENDIMENTO_RF: 'Rendimento', STAKE: 'Rendimento (Stake)' }; // [STAKE v1]
+var TIPOS_LABEL = { COMPRA: 'Compra', VENDA: 'Venda', ENTRADA: 'Entrada', SAIDA: 'Saída', CONVERSAO: 'Conversão', PROVENTO: 'Provento', APORTE: 'Aporte', RENDIMENTO_RF: 'Rendimento', STAKE: 'Rendimento (Stake)', RESGATE: 'Resgate' }; // [STAKE v1]
 
 // [PROV v1 · 28/09/2026] PROVENTOS LANÇADOS À MÃO (fase 1)
 // A bolsai só entrega proventos no plano Pro (testado em 28/09: 403), então
@@ -4597,7 +4600,7 @@ function validarTransacao(usuarioId, dados, editId) {
             if (!nomeRF) erros.nome_rf = 'Este campo é obrigatório.';
             else if (nomeRF.length > 80) erros.nome_rf = 'Máximo 80 caracteres.';
         }
-        if (tipo === 'RENDIMENTO_RF') {
+        if (tipo === 'RENDIMENTO_RF' || tipo === 'RESGATE') {
             var ativoRFId = parseInt(dados.ativo_rf_id, 10);
             if (!ativoRFId) erros.ativo_rf_id = 'Escolha o título de renda fixa.';
         }
@@ -4755,9 +4758,11 @@ function salvarTransacao(usuarioId, dados, editId) {
                 db.ativos.push(ativoRF);
             }
             registro = { ativoId: ativoRF.id, tipo: 'APORTE', quantidade: 0, data: dados.data, precoUnitario: 0, corretagemTaxas: 0, valor: parseFloat(dados.valor_rf) };
-        } else {
-            // RENDIMENTO_RF: usa ativo existente
+        } else if (tipo === 'RENDIMENTO_RF') {
             registro = { ativoId: parseInt(dados.ativo_rf_id, 10), tipo: 'RENDIMENTO_RF', quantidade: 0, data: dados.data, precoUnitario: 0, corretagemTaxas: 0, valor: parseFloat(dados.valor_rf) };
+        } else {
+            // RESGATE: debita do saldo do título
+            registro = { ativoId: parseInt(dados.ativo_rf_id, 10), tipo: 'RESGATE', quantidade: 0, data: dados.data, precoUnitario: 0, corretagemTaxas: 0, valor: parseFloat(dados.valor_rf) };
         }
         if (editId) {
             var tRF = db.transacoes.filter(function (x) { return x.id === editId; })[0];
@@ -5201,25 +5206,34 @@ function corpoFormularioHTML(v, e, editId, usuarioId) {
                 '<p class="field-help">Digite um nome novo ou escolha um título já cadastrado para registrar um novo aporte.</p>' +
                 erroHTML(e, 'nome_rf') + '</div>';
         } else {
-            // RENDIMENTO_RF: selecionar ativo RF existente
+            // RENDIMENTO_RF / RESGATE: selecionar ativo RF existente
             var rfOptions = ativosRF.map(function (a) {
                 return '<option value="' + a.id + '"' + (String(a.id) === String(v.ativo_rf_id) ? ' selected' : '') + '>' + escapeHtml(a.ticker) + '</option>';
             }).join('');
             if (!rfOptions) rfOptions = '<option value="">— nenhum título cadastrado ainda —</option>';
-            html += '<div class="field"><label for="f_ativo_rf_id">Título de renda fixa</label>' +
+            var labelAtivo = tipo === 'RESGATE' ? 'Título a resgatar' : 'Título de renda fixa';
+            var helpAtivo  = tipo === 'RESGATE' ? 'Selecione o título que está sendo resgatado.' : 'Selecione o título que gerou este rendimento.';
+            html += '<div class="field"><label for="f_ativo_rf_id">' + labelAtivo + '</label>' +
                 '<select name="ativo_rf_id" id="f_ativo_rf_id">' + rfOptions + '</select>' +
-                '<p class="field-help">Selecione o título que gerou este rendimento.</p>' +
+                '<p class="field-help">' + helpAtivo + '</p>' +
                 erroHTML(e, 'ativo_rf_id') + '</div>';
         }
-        html += '<div class="field"><label for="f_valor_rf">' + (tipo === 'APORTE' ? 'Valor aportado (R$)' : 'Valor do rendimento (R$)') + '</label>' +
+        var labelValor = tipo === 'APORTE' ? 'Valor aportado (R$)' : (tipo === 'RESGATE' ? 'Valor resgatado (R$)' : 'Valor do rendimento (R$)');
+        var helpValor  = tipo === 'APORTE' ? 'Total aplicado neste título nesta data.'
+                       : tipo === 'RESGATE' ? 'Valor bruto recebido no resgate (principal + rendimentos acumulados que ainda não foram registrados). Parcial ou total.'
+                       : 'Rendimento bruto ou líquido — registre da forma que preferir, seja consistente.';
+        html += '<div class="field"><label for="f_valor_rf">' + labelValor + '</label>' +
             '<input type="number" name="valor_rf" id="f_valor_rf" step="0.01" value="' + (v.valor_rf != null ? escapeHtml(v.valor_rf) : '') + '">' +
-            (tipo === 'APORTE' ? '<p class="field-help">Total aplicado neste título nesta data.</p>' : '<p class="field-help">Rendimento bruto ou líquido — registre da forma que preferir, seja consistente.</p>') +
+            '<p class="field-help">' + helpValor + '</p>' +
             erroHTML(e, 'valor_rf') + '</div>';
         html += '<div class="field"><label for="f_data">Data</label>' +
             '<input type="date" name="data" id="f_data" value="' + escapeHtml(data) + '">' +
             erroHTML(e, 'data') + '</div>';
         if (tipo === 'RENDIMENTO_RF') {
             html += '<p class="nota-operacao">Rendimento não aparece na tela de Lançamentos — fica registrado no histórico e é contabilizado nas colunas de Renda Fixa em Posições.</p>';
+        }
+        if (tipo === 'RESGATE') {
+            html += '<p class="nota-operacao">Resgate subtrai do saldo do título. Resgate parcial mantém o restante investido; resgate total zera a posição. O histórico de aportes e rendimentos é preservado.</p>';
         }
         return html;
     }
@@ -5702,15 +5716,16 @@ function patrimonioNaData(usuarioId, anoMes, precosMensaisPorTicker) {
         }
     });
 
-    // Renda fixa: custo acumulado (APORTE) + rendimentos − saídas até a data
+    // Renda fixa: custo acumulado (APORTE) + rendimentos − resgates até a data
     var ativosRF = (db.ativos || []).filter(function (a) { return a.classe === 'RENDA_FIXA'; });
     ativosRF.forEach(function (ativo) {
         var saldoRF = (db.transacoes || []).filter(function (t) {
             return t.usuarioId === usuarioId && t.ativoId === ativo.id && t.data <= dataLimite;
         }).reduce(function (s, t) {
-            if (t.tipo === 'APORTE') return s + Number(t.valor || 0);
+            if (t.tipo === 'APORTE')        return s + Number(t.valor || 0);
             if (t.tipo === 'RENDIMENTO_RF') return s + Number(t.valor || 0);
-            if (t.tipo === 'SAIDA') return s - Number(t.valor || 0);
+            if (t.tipo === 'SAIDA')         return s - Number(t.valor || 0);
+            if (t.tipo === 'RESGATE')       return s - Number(t.valor || 0);
             return s;
         }, 0);
         if (saldoRF > 0) total += saldoRF;
@@ -5746,10 +5761,11 @@ function aportesLiquidosNoMes(usuarioId, anoMes) {
         return t.usuarioId === usuarioId && t.data >= ini && t.data <= fim;
     }).reduce(function (s, t) {
         var ativo = ativosPorId[t.ativoId];
-        if (t.tipo === 'COMPRA') return s + (Number(t.quantidade) * Number(t.precoUnitario) + (Number(t.corretagemTaxas) || 0));
-        if (t.tipo === 'APORTE') return s + Number(t.valor || 0); // RF
-        if (t.tipo === 'VENDA') return s - (Number(t.quantidade) * Number(t.precoUnitario) - (Number(t.corretagemTaxas) || 0));
-        if (t.tipo === 'SAIDA') return s - Number(t.valor || 0); // RF saindo
+        if (t.tipo === 'COMPRA')  return s + (Number(t.quantidade) * Number(t.precoUnitario) + (Number(t.corretagemTaxas) || 0));
+        if (t.tipo === 'APORTE')  return s + Number(t.valor || 0); // RF
+        if (t.tipo === 'VENDA')   return s - (Number(t.quantidade) * Number(t.precoUnitario) - (Number(t.corretagemTaxas) || 0));
+        if (t.tipo === 'SAIDA')   return s - Number(t.valor || 0); // cripto saindo
+        if (t.tipo === 'RESGATE') return s - Number(t.valor || 0); // RF resgatado
         return s;
         // ENTRADA, STAKE, CONVERSAO, PROVENTO, RENDIMENTO_RF → sem fluxo de capital
     }, 0);
@@ -5852,9 +5868,10 @@ function patrimonioMercadoAtual(usuarioId, cotacoes) {
         var saldoRF = (db.transacoes || []).filter(function (t) {
             return t.usuarioId === usuarioId && t.ativoId === ativo.id && t.data <= hojeISO;
         }).reduce(function (s, t) {
-            if (t.tipo === 'APORTE') return s + Number(t.valor || 0);
+            if (t.tipo === 'APORTE')        return s + Number(t.valor || 0);
             if (t.tipo === 'RENDIMENTO_RF') return s + Number(t.valor || 0);
-            if (t.tipo === 'SAIDA') return s - Number(t.valor || 0);
+            if (t.tipo === 'SAIDA')         return s - Number(t.valor || 0);
+            if (t.tipo === 'RESGATE')       return s - Number(t.valor || 0);
             return s;
         }, 0);
         if (saldoRF > 0) total += saldoRF;
@@ -6444,7 +6461,7 @@ function renderDashboard(user) {
         var kpis = calcularKpis(user.id);
         Object.assign(kpis, calcularKpisMercado(posicoes));
         // saldoAtual = custo total investido + lucro/prejuízo de mercado + rendimentos de RF
-        var rfRendimentos = posicoesRF(user.id).reduce(function(s, p) { return s + p.rendimento; }, 0);
+        var rfRendimentos = posicoesRF(user.id).filter(function(p){ return p.saldo > 0; }).reduce(function(s, p) { return s + p.rendimento; }, 0);
         kpis.saldoAtual = kpis.lucroPrejuizo !== null
             ? kpis.valorInvestido + kpis.lucroPrejuizo + rfRendimentos
             : kpis.valorInvestido + rfRendimentos;
@@ -6652,7 +6669,7 @@ function renderPosicoes(user) {
         grupos.forEach(function (g) { todasPosicoes = todasPosicoes.concat(g.posicoes); });
         var mercadoPos = calcularKpisMercado(todasPosicoes);
         // [RF v1] saldo inclui rendimentos de RF
-        var rfRendimentosPos = posicoesRF(user.id).reduce(function(s, p) { return s + p.rendimento; }, 0);
+        var rfRendimentosPos = posicoesRF(user.id).filter(function(p){ return p.saldo > 0; }).reduce(function(s, p) { return s + p.rendimento; }, 0);
         var saldoCarteira = mercadoPos.lucroPrejuizo !== null
             ? kpis.valorInvestido + mercadoPos.lucroPrejuizo + rfRendimentosPos
             : (rfRendimentosPos > 0 ? kpis.valorInvestido + rfRendimentosPos : null);
@@ -6718,32 +6735,41 @@ function renderPosicoes(user) {
         }
 
         // [RF v1] grupo de Renda Fixa separado (sem cotação de mercado)
-        var rfPosicoes = posicoesRF(user.id);
+        // Apenas posições ativas (saldo > 0); posições totalmente resgatadas são ocultas aqui.
+        var rfPosicoes = posicoesRF(user.id).filter(function (p) { return p.saldo > 0; });
         var grupoRFHTML = '';
         if (rfPosicoes.length) {
             var corRF = CORES_CLASSE['RENDA_FIXA'];
+            var totalRFSaldo    = rfPosicoes.reduce(function (s, p) { return s + p.saldo; }, 0);
             var totalRFAportado = rfPosicoes.reduce(function (s, p) { return s + p.aportado; }, 0);
-            var totalRFSaldo = rfPosicoes.reduce(function (s, p) { return s + p.saldo; }, 0);
             var totalRFRendimento = rfPosicoes.reduce(function (s, p) { return s + p.rendimento; }, 0);
+            var totalRFResgatado = rfPosicoes.reduce(function (s, p) { return s + p.resgatado; }, 0);
             var totalCarteira = kpis.valorInvestido; // inclui RF
-            var pctRF = totalCarteira > 0 ? (totalRFAportado / totalCarteira) * 100 : 0;
+            var pctRF = totalCarteira > 0 ? (totalRFSaldo / totalCarteira) * 100 : 0;
             var yieldGlobalRF = totalRFAportado > 0 ? (totalRFRendimento / totalRFAportado) * 100 : 0;
             var rentRFHeader = totalRFAportado > 0
-                ? '<span class="trend ' + (totalRFRendimento >= 0 ? 'up' : 'down') + ' classe-group-rent">yield ' + fmt2(yieldGlobalRF) + '%</span>'
+                ? '<span class="trend ' + (totalRFRendimento >= 0 ? 'up' : 'down') + ' classe-group-rent">+' + fmt2(yieldGlobalRF) + '%</span>'
                 : '';
+            // coluna Resgatado só aparece quando ao menos uma posição tem resgate parcial
+            var temResgate = rfPosicoes.some(function (p) { return p.resgatado > 0; });
             var rfLinhas = rfPosicoes.map(function (p) {
                 var yieldCell = p.aportado > 0
                     ? '<span class="trend ' + (p.rendimento >= 0 ? 'up' : 'down') + '">' + fmt2(p.yieldPct) + '%</span>'
                     : '—';
+                var celulaResgatado = temResgate
+                    ? '<td data-label="Resgatado">' + (p.resgatado > 0 ? '<span style="color:var(--color-danger,#dc2626);">−R$ ' + fmt2(p.resgatado) + '</span>' : '—') + '</td>'
+                    : '';
                 return '<tr>' +
                     '<td class="td-titulo"><span class="ativo-logo ativo-logo-fallback" style="background:' + corRF + ';color:#fff;">' + escapeHtml(p.ativo.ticker.slice(0,2).toUpperCase()) + '</span>' + escapeHtml(p.ativo.ticker) + '</td>' +
                     '<td data-label="Valor aportado">R$ ' + fmt2(p.aportado) + '</td>' +
                     '<td data-label="Rendimento">R$ ' + fmt2(p.rendimento) + '</td>' +
-                    '<td data-label="Saldo total"><strong>R$ ' + fmt2(p.saldo) + '</strong></td>' +
+                    celulaResgatado +
+                    '<td data-label="Saldo atual"><strong>R$ ' + fmt2(p.saldo) + '</strong></td>' +
                     '<td data-label="Yield">' + yieldCell + '</td>' +
-                    '<td data-label="% da carteira">' + fmt1(totalCarteira > 0 ? (p.aportado / totalCarteira) * 100 : 0) + '%</td>' +
+                    '<td data-label="% da carteira">' + fmt1(totalCarteira > 0 ? (p.saldo / totalCarteira) * 100 : 0) + '%</td>' +
                     '</tr>';
             }).join('');
+            var thResgatado = temResgate ? '<th>Resgatado</th>' : '';
             var fechadoRF = grupoRecolhido('RENDA_FIXA');
             grupoRFHTML = '<div class="classe-group' + (fechadoRF ? ' fechado' : '') + '" data-classe="RENDA_FIXA">' +
                 '<div class="classe-group-header" role="button" tabindex="0" data-classe-toggle="RENDA_FIXA" aria-expanded="' + (fechadoRF ? 'false' : 'true') + '">' +
@@ -6751,12 +6777,13 @@ function renderPosicoes(user) {
                 ' <span class="classe-group-count">(' + rfPosicoes.length + ')</span>' + rentRFHeader + '</div>' +
                 '<div class="classe-group-stats">' +
                 '<span>Valor aportado <strong>R$ ' + fmt2(totalRFAportado) + '</strong></span>' +
+                (temResgate ? '<span>Resgatado <strong style="color:var(--color-danger,#dc2626);">−R$ ' + fmt2(totalRFResgatado) + '</strong></span>' : '') +
                 '<span>Saldo atual <strong class="up">R$ ' + fmt2(totalRFSaldo) + '</strong></span>' +
                 '<span>% da carteira <strong>' + fmt1(pctRF) + '%</strong></span></div>' +
                 '<span class="classe-group-seta" aria-hidden="true"></span></div>' +
                 '<div class="classe-group-corpo"><div class="classe-group-corpo-interno">' +
                 '<div class="classe-group-table-scroll"><table class="table table-cards"><thead><tr>' +
-                '<th>Título</th><th>Valor aportado</th><th>Rendimento</th><th>Saldo total</th><th>Yield</th><th>% da carteira</th>' +
+                '<th>Título</th><th>Valor aportado</th><th>Rendimento</th>' + thResgatado + '<th>Saldo atual</th><th>Yield</th><th>% da carteira</th>' +
                 '</tr></thead><tbody>' + rfLinhas + '</tbody></table></div></div></div></div>';
         }
 

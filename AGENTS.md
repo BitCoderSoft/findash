@@ -142,7 +142,7 @@ Tudo persiste em um único objeto JSON na chave `DASH_FINANCE_DB_V1`:
 |---|---|
 | BOLSA (Ação/FII/BDR/ETF) | `COMPRA`, `VENDA`, `PROVENTO` |
 | CRIPTO | `COMPRA`, `VENDA`, `ENTRADA`, `SAIDA`, `CONVERSAO`, `STAKE` |
-| RENDA_FIXA | `APORTE`, `RENDIMENTO_RF`, `SAIDA` |
+| RENDA_FIXA | `APORTE`, `RENDIMENTO_RF`, `RESGATE` |
 
 Semântica dos tipos:
 
@@ -152,6 +152,7 @@ Semântica dos tipos:
 - `CONVERSAO` → retira da origem pelo PM e migra esse mesmo custo para o ativo
   destino (campo `ativoDestinoId` + `quantidadeDestino`).
 - `PROVENTO` / `RENDIMENTO_RF` → não mexe na posição; vai para o total de proventos.
+- `RESGATE` (RF) → subtrai do saldo líquido da posição RF (`saldo = Σ APORTE + Σ RENDIMENTO_RF − Σ RESGATE`). Fluxo negativo no Modified Dietz. Delta negativo na evolução mensal. Posição some da tela de Posições quando `saldo ≤ 0` (resgate total); com resgate parcial, coluna "Resgatado" aparece na tabela RF. `rfRendimentos` e `numPosicoes` excluem posições com `saldo ≤ 0`.
 
 ### Preço médio ponderado
 
@@ -459,8 +460,7 @@ Princípios — manter consistência em telas novas:
 - `localStorage` não é compartilhado entre navegadores/dispositivos — backup
   manual (página Backup) é o único mecanismo de persistência fora do browser.
 - Sem testes automatizados.
-- Renda Fixa parcialmente implementada (APORTE/RENDIMENTO_RF existem no motor,
-  UI de aporte ainda básica).
+- Renda Fixa parcialmente implementada (APORTE/RENDIMENTO_RF/RESGATE existem; UI de aporte ainda básica).
 - Formulário não impede quantidade fracionada em Ação/FII/BDR no campo de
   quantidade (a validação `CLASSES_INTEIRAS` bloqueia, mas a mensagem de erro
   pode ser melhorada).
