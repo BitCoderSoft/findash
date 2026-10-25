@@ -115,7 +115,7 @@ Tudo persiste em um único objeto JSON na chave `DASH_FINANCE_DB_V1`:
 ### Ativo
 
 - `ticker`: string maiúscula, trimada.
-- `classe`: `'ACAO' | 'FII' | 'BDR' | 'CRIPTO' | 'RENDA_FIXA'`.
+- `classe`: `'ACAO' | 'FII' | 'BDR' | 'ETF' | 'CRIPTO' | 'RENDA_FIXA'`.
 - `mercado`: `'BOLSA' | 'CRIPTO'` — determina quais tipos de transação são
   permitidos e qual fonte de cotação usar.
 
@@ -140,7 +140,7 @@ Tudo persiste em um único objeto JSON na chave `DASH_FINANCE_DB_V1`:
 
 | Mercado | Tipos permitidos |
 |---|---|
-| BOLSA (Ação/FII/BDR) | `COMPRA`, `VENDA`, `PROVENTO` |
+| BOLSA (Ação/FII/BDR/ETF) | `COMPRA`, `VENDA`, `PROVENTO` |
 | CRIPTO | `COMPRA`, `VENDA`, `ENTRADA`, `SAIDA`, `CONVERSAO`, `STAKE` |
 | RENDA_FIXA | `APORTE`, `RENDIMENTO_RF`, `SAIDA` |
 
@@ -445,7 +445,7 @@ Princípios — manter consistência em telas novas:
 - **`BRAPI_TOKEN`**: hardcoded em `var BRAPI_TOKEN` (linha ~1823). Arquivo é
   de uso pessoal; **nunca versionar/publicar com o token real**.
 - **Novo ativo ou tipo de transação**: atualizar `CLASSES`, `CLASSES_ORDEM`,
-  `CLASSES_LANCAVEIS`, `CORES_CLASSE` e `TIPOS_POR_MERCADO`.
+  `CLASSES_LANCAVEIS`, `CLASSES_BOLSA`, `CLASSES_INTEIRAS`, `CORES_CLASSE` e `TIPOS_POR_MERCADO`.
 - **Nova página**: criar `renderNovaPagina(user)`, registrar em
   `renderCurrentRoute()`, adicionar item no topbar/menu mobile.
 
@@ -559,6 +559,13 @@ Princípios — manter consistência em telas novas:
       semáforos visuais nos cards (dot colorido + seta + label CDI/IBOV substituem ✓/✗ texto);
       bloco "Alocação por classe" na aba Consistência com atual vs ideal (lê `calcularBalanceamento`
       + `lerBalanceamento`) e desvio em p.p. com cor — mostra aviso se ideais não definidos.
+39. ✅ Classe ETF (`[ETF v1]`): nova classe `'ETF'` (cyan `#0891b2`) no mercado BOLSA. Mesmas
+      colunas de Posições que Ação (Quantidade, Preço médio, Preço atual, Rentabilidade, Total
+      investido, Saldo atual, Proventos, % da carteira). ETF aparece em: Balanceamento, Simulador
+      de aporte, donut de alocação, heatmap/rentabilidade (via CLASSES_ORDEM), Análise (YoC inclui
+      ETF na base). `tipoIndicador` retorna `null` para ETF (sem indicadores fundamentalistas).
+      `CLASSES_INTEIRAS` inclui ETF (cotas inteiras na B3). Cotação via brapi.dev (mesmo endpoint
+      de ACAO/FII/BDR).
 38. ✅ Página Análise — etapas 3 e 4: aba Proventos com cards Total recebido, Últimos 12 meses,
       YoC acumulado, YoC 12m e Meses sem provento; grid "Por classe" quando há mais de uma classe
       pagadora. `calcularAnalise` inclui `RENDIMENTO_RF` no total de proventos (além de `PROVENTO`);

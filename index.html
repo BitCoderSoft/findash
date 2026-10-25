@@ -1878,16 +1878,16 @@ var BCB_CDI_PERIODO_URL = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dado
 
 // [CRIPTO v2 · 28/09/2026] BDR entrou (a brapi cota BDR como qualquer ação
 // da B3; quantidade inteira, igual ação e FII)
-var CLASSES = { ACAO: 'Ação', FII: 'FII', BDR: 'BDR', CRIPTO: 'Criptomoeda', RENDA_FIXA: 'Renda fixa' };
-var CLASSES_ORDEM = ['ACAO', 'FII', 'BDR', 'CRIPTO', 'RENDA_FIXA'];
+var CLASSES = { ACAO: 'Ação', FII: 'FII', BDR: 'BDR', ETF: 'ETF', CRIPTO: 'Criptomoeda', RENDA_FIXA: 'Renda fixa' };
+var CLASSES_ORDEM = ['ACAO', 'FII', 'BDR', 'ETF', 'CRIPTO', 'RENDA_FIXA'];
 // [RF v1 · 11/10/2026] Renda fixa reativada com abordagem manual: APORTE
 // (valor total sem qty/preço) e RENDIMENTO_RF (rendimento manual, invisível
 // em Lançamentos). Sem busca de cotação de mercado.
-var CLASSES_LANCAVEIS = ['ACAO', 'FII', 'BDR', 'CRIPTO', 'RENDA_FIXA'];
+var CLASSES_LANCAVEIS = ['ACAO', 'FII', 'BDR', 'ETF', 'CRIPTO', 'RENDA_FIXA'];
 // [CRIPTO v2] classes escolhíveis no mercado Bolsa (cripto não escolhe classe)
-var CLASSES_BOLSA = ['ACAO', 'FII', 'BDR'];
-var CLASSES_INTEIRAS = { ACAO: true, FII: true, BDR: true }; // B3 não fraciona ação/cota de FII
-var CORES_CLASSE = { ACAO: '#2a78d6', FII: '#eb6834', BDR: '#8a5cd6', CRIPTO: '#1baf7a', RENDA_FIXA: '#eda100' };
+var CLASSES_BOLSA = ['ACAO', 'FII', 'BDR', 'ETF'];
+var CLASSES_INTEIRAS = { ACAO: true, FII: true, BDR: true, ETF: true }; // B3 não fraciona ação/cota de FII/ETF
+var CORES_CLASSE = { ACAO: '#2a78d6', FII: '#eb6834', BDR: '#8a5cd6', ETF: '#0891b2', CRIPTO: '#1baf7a', RENDA_FIXA: '#eda100' };
 var MESES_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 /* =================================================================
@@ -5084,7 +5084,7 @@ function corpoFormularioHTML(v, e, editId, usuarioId) {
     var data = v.data || (editId ? '' : hojeISO());
 
     var mercadoOptions =
-        '<option value="BOLSA"' + (mercado === 'BOLSA' ? ' selected' : '') + '>Bolsa (ações, FIIs, BDRs)</option>' +
+        '<option value="BOLSA"' + (mercado === 'BOLSA' ? ' selected' : '') + '>Bolsa (ações, FIIs, BDRs, ETFs)</option>' +
         '<option value="CRIPTO"' + (mercado === 'CRIPTO' ? ' selected' : '') + '>Cripto</option>' +
         '<option value="RENDA_FIXA"' + (mercado === 'RENDA_FIXA' ? ' selected' : '') + '>Renda Fixa</option>';
     var tipoOptions = (TIPOS_POR_MERCADO[mercado] || TIPOS_POR_MERCADO['BOLSA']).map(function (t) {
@@ -6425,7 +6425,7 @@ function renderDashboard(user) {
             var pos = custoMedioPorAtivo(user.id);
             return Object.keys(pos).reduce(function(s, k) {
                 var p = pos[k];
-                return (p.quantidade > 0 && (p.ativo.classe === 'ACAO' || p.ativo.classe === 'FII')) ? s + p.custoTotal : s;
+                return (p.quantidade > 0 && (p.ativo.classe === 'ACAO' || p.ativo.classe === 'FII' || p.ativo.classe === 'ETF')) ? s + p.custoTotal : s;
             }, 0);
         })();
         var yocGeral = custoGerador > 0 ? (provTotal / custoGerador) * 100 : null;
@@ -6901,7 +6901,7 @@ function renderProventos(user) {
         if (ativoFiltradoId !== 'todos') {
             if (p.ativo.id === ativoFiltradoId) totalInvestidoProv += p.valorInvestido;
         } else {
-            if (p.ativo.classe === 'ACAO' || p.ativo.classe === 'FII') totalInvestidoProv += p.valorInvestido;
+            if (p.ativo.classe === 'ACAO' || p.ativo.classe === 'FII' || p.ativo.classe === 'ETF') totalInvestidoProv += p.valorInvestido;
         }
     });
     var yocGeral = totalInvestidoProv > 0 ? (totalGeral / totalInvestidoProv * 100) : null;
@@ -8068,7 +8068,7 @@ function tipoIndicador(ticker) {
         if (ativo.classe === 'FII') return 'FII';
         if (ativo.classe === 'BDR') return 'BDR';
         if (ativo.classe === 'ACAO') return 'ACAO';
-        return null; // cripto e renda fixa: fora da bolsai
+        return null; // ETF, cripto e renda fixa: fora da bolsai
     }
     if (/11$/.test(ticker)) return 'FII?';
     if (/3[2-5]$|39$/.test(ticker)) return 'BDR';
@@ -9977,9 +9977,9 @@ function calcularAnalise(usuarioId) {
         }
     });
 
-    // YoC: base custo ACAO + FII, usando apenas proventos de renda variável
+    // YoC: base custo ACAO + FII + ETF, usando apenas proventos de renda variável
     var custoBase = posicoes.reduce(function (s, p) {
-        return (p.ativo.classe === 'ACAO' || p.ativo.classe === 'FII') ? s + p.valorInvestido : s;
+        return (p.ativo.classe === 'ACAO' || p.ativo.classe === 'FII' || p.ativo.classe === 'ETF') ? s + p.valorInvestido : s;
     }, 0);
     var yocGeral = custoBase > 0 && totalProvRV > 0 ? totalProvRV / custoBase * 100 : null;
     var yoc12m   = custoBase > 0 && total12mRV  > 0 ? total12mRV  / custoBase * 100 : null;
