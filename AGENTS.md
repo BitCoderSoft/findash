@@ -581,6 +581,18 @@ Princípios — manter consistência em telas novas:
       BOLSA (ACAO/FII/BDR), excluindo CRIPTO onde frações pequenas são normais. Corrigido HTML
       malformado na aba Concentração (`<div>` → `<ul>` na mensagem "dentro dos limites") que causava
       as abas Proventos e Saúde ficarem aninhadas dentro do div de Concentração e invisíveis.
+41. ✅ Multi-carteira (`[MULTI v1]`) — `APP_VERSAO` 1.5.0. Cada usuário pode ter N carteiras
+      independentes. Dados migrados automaticamente: `migrarParaMultiCarteira()` no boot tagueia
+      todas as transações/objetivos/historicoRentabilidade existentes com uma carteira "Principal"
+      criada on-the-fly. Novas transações, objetivos e histórico de rentabilidade recebem
+      `carteiraId` ao ser criados. `balanceamentos` reindexado por `carteiraId` (era `usuarioId`).
+      Session agora armazena `{ userId, carteiraId }`. `carteiraIdAtual()` lê o ID da carteira ativa.
+      Seletor no topbar: clique no nome do usuário abre dropdown com a lista de carteiras; checkmark
+      na carteira ativa; botão de edição abre gaveta de renomear; "Nova carteira" cria uma nova e
+      troca para ela imediatamente. Isolamento completo: mesma ticker em carteiras distintas = posições
+      independentes. `stockHist`/`ibovHist`/`ifixHist`/`usdBrlHist` são globais (market data compartilhado).
+      Backup exporta/importa apenas a carteira ativa. Corrigido bug: `verificarPosicaoEncerrada` usava
+      `processarCarteira(usuarioId)` (inválido) → corrigido para `custoMedioPorAtivo(usuarioId)`.
 
 ## Preferências de trabalho
 

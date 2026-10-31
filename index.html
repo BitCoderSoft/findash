@@ -488,6 +488,52 @@ a.nav-item:hover { color: var(--color-text); }
     font-size: var(--text-md);
 }
 
+/* [MULTI v1] Seletor de carteiras */
+.carteira-switcher { position: relative; }
+.carteira-switcher-btn {
+    display: flex; align-items: center; gap: 6px;
+    background: none; border: none; cursor: pointer;
+    font-size: var(--text-sm); color: var(--color-text-muted);
+    padding: 4px 8px; border-radius: var(--radius-xs);
+    transition: background 0.15s;
+}
+.carteira-switcher-btn:hover { background: var(--color-surface-hover); }
+.carteira-switcher-btn strong { color: var(--color-text); font-weight: 600; }
+.carteira-switcher-btn .cs-nome { color: var(--color-text); font-size: var(--text-xs); font-weight: 500; }
+.carteira-switcher-btn .cs-seta { font-size: 9px; color: var(--color-muted); transition: transform 0.2s; }
+.carteira-switcher-btn.aberto .cs-seta { transform: rotate(180deg); }
+.carteira-dropdown {
+    display: none; position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm); box-shadow: 0 4px 16px rgba(0,0,0,.12);
+    min-width: 240px; z-index: 200;
+}
+.carteira-dropdown.aberta { display: block; }
+.carteira-dropdown-header {
+    padding: 10px 14px 6px;
+    font-size: var(--text-xs); color: var(--color-muted); text-transform: uppercase; letter-spacing: .5px;
+}
+.carteira-dropdown-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; cursor: pointer;
+    transition: background 0.12s;
+}
+.carteira-dropdown-item:hover { background: var(--color-surface-hover); }
+.carteira-dropdown-item.ativa { background: rgba(32,28,26,.06); }
+.carteira-dropdown-item-nome { flex: 1; font-size: var(--text-sm); font-weight: 500; color: var(--color-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.carteira-dropdown-item-check { font-size: 13px; color: var(--color-primary); flex-shrink: 0; }
+.carteira-dropdown-item-edit { background: none; border: none; cursor: pointer; padding: 2px 4px; color: var(--color-muted); border-radius: 4px; flex-shrink: 0; }
+.carteira-dropdown-item-edit:hover { color: var(--color-text); background: var(--color-border); }
+.carteira-dropdown-nova {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 14px; border-top: 1px solid var(--color-border);
+    cursor: pointer; color: var(--color-primary); font-size: var(--text-sm); font-weight: 500;
+    transition: background 0.12s;
+}
+.carteira-dropdown-nova:hover { background: var(--color-surface-hover); }
+:root:not([data-theme="light"]) .carteira-dropdown-item.ativa { background: rgba(255,255,255,.06); }
+:root[data-theme="dark"] .carteira-dropdown-item.ativa { background: rgba(255,255,255,.06); }
+
 #app { display: flex; flex-direction: column; min-height: 100vh; }
 #app > main { width: 100%; box-sizing: border-box; }
 
@@ -2088,8 +2134,8 @@ function getSession() {
     } catch (e) { return null; }
 }
 
-function setSession(userId) {
-    armazem.set(SESSION_KEY, JSON.stringify({ userId: userId }));
+function setSession(userId, carteiraId) {
+    armazem.set(SESSION_KEY, JSON.stringify({ userId: userId, carteiraId: carteiraId || null }));
 }
 
 function clearSession() {
@@ -2105,6 +2151,76 @@ function currentUser() {
         if (db.users[i].id === session.userId) { user = db.users[i]; break; }
     }
     return user;
+}
+
+// [MULTI v1] retorna o carteiraId ativo da sessão, ou null se não houver sessão
+function carteiraIdAtual() {
+    var sess = getSession();
+    return (sess && sess.carteiraId) ? sess.carteiraId : null;
+}
+
+// [MULTI v1] retorna todas as carteiras do usuário
+function carteirasDoUsuario(usuarioId) {
+    var db = loadDB();
+    return (db.carteiras || []).filter(function (c) { return c.usuarioId === usuarioId; })
+        .sort(function (a, b) { return a.criadoEm - b.criadoEm; });
+}
+
+// [MULTI v1] cria uma nova carteira e retorna o objeto criado
+function criarCarteira(usuarioId, nome) {
+    var db = loadDB();
+    db.carteiras = db.carteiras || [];
+    var carteira = { id: db.nextId++, usuarioId: usuarioId, nome: nome || 'Nova carteira', criadoEm: Date.now() };
+    db.carteiras.push(carteira);
+    saveDB(db);
+    return carteira;
+}
+
+// [MULTI v1] renomeia uma carteira; retorna ok/erro
+function renomearCarteira(carteiraId, novoNome) {
+    if (!novoNome || !novoNome.trim()) return { ok: false, erro: 'Nome não pode ficar vazio.' };
+    var db = loadDB();
+    var c = (db.carteiras || []).filter(function (x) { return x.id === carteiraId; })[0];
+    if (!c) return { ok: false, erro: 'Carteira não encontrada.' };
+    c.nome = novoNome.trim();
+    saveDB(db);
+    return { ok: true };
+}
+
+// [MULTI v1] migração one-shot: cria "Principal" para cada usuário que não tem carteira
+// e taggeia transações/objetivos/histRentabilidade existentes com o carteiraId dela.
+// Também migra chave de balanceamentos de userId → carteiraId.
+function migrarParaMultiCarteira() {
+    var db = loadDB();
+    if (!db.users || !db.users.length) return;
+    db.carteiras = db.carteiras || [];
+    var alterou = false;
+    db.users.forEach(function (u) {
+        var temCarteira = db.carteiras.some(function (c) { return c.usuarioId === u.id; });
+        if (temCarteira) return;
+        var cId = db.nextId++;
+        db.carteiras.push({ id: cId, usuarioId: u.id, nome: 'Principal', criadoEm: u.criadoEm || Date.now() });
+        // Taggar transacoes
+        (db.transacoes || []).forEach(function (t) {
+            if (t.usuarioId === u.id && !t.carteiraId) { t.carteiraId = cId; alterou = true; }
+        });
+        // Taggar objetivos
+        (db.objetivos || []).forEach(function (o) {
+            if (o.usuarioId === u.id && !o.carteiraId) { o.carteiraId = cId; alterou = true; }
+        });
+        // Taggar historicoRentabilidade
+        (db.historicoRentabilidade || []).forEach(function (h) {
+            if (h.usuarioId === u.id && !h.carteiraId) { h.carteiraId = cId; alterou = true; }
+        });
+        // Migrar balanceamentos: key userId → key carteiraId
+        db.balanceamentos = db.balanceamentos || {};
+        if (db.balanceamentos[u.id] && !db.balanceamentos[cId]) {
+            db.balanceamentos[cId] = db.balanceamentos[u.id];
+            alterou = true;
+        }
+        alterou = true;
+    });
+    if (alterou) saveDB(db);
 }
 
 // Hash bem simples (NÃO criptográfico) só pra não guardar senha em texto puro
@@ -2146,8 +2262,12 @@ function criarUsuario(username, email, senha1, senha2) {
 
     var user = { id: db.nextId++, username: username, email: email, passwordHash: hashSenha(senha1), criadoEm: Date.now() };
     db.users.push(user);
+    // [MULTI v1] toda conta nova ganha uma carteira "Principal" automaticamente
+    db.carteiras = db.carteiras || [];
+    var carteiraInicial = { id: db.nextId++, usuarioId: user.id, nome: 'Principal', criadoEm: Date.now() };
+    db.carteiras.push(carteiraInicial);
     saveDB(db);
-    return { ok: true, user: user };
+    return { ok: true, user: user, carteiraId: carteiraInicial.id };
 }
 
 function autenticar(username, senha) {
@@ -2357,10 +2477,11 @@ function primeiroFuroDeSaldo(transacoesOrdenadas, ativoId) {
 // nova (numa conversão, origem e destino).
 function verificarCronologia(usuarioId, alteracao) {
     var db = loadDB();
+    var cId = carteiraIdAtual();
     var idRemovido = alteracao.editId || alteracao.excluirId || null;
 
     var lista = db.transacoes.filter(function (t) {
-        return t.usuarioId === usuarioId && t.id !== idRemovido;
+        return t.usuarioId === usuarioId && (!cId || t.carteiraId === cId) && t.id !== idRemovido;
     });
 
     var afetados = [];
@@ -2404,8 +2525,9 @@ function descreverFuro(furo, ticker) {
 // atalho pra processarCarteira(), que conhece os 5 tipos.
 function custoMedioPorAtivo(usuarioId) {
     var db = loadDB();
+    var cId = carteiraIdAtual();
     var transacoes = ordenarTransacoes(
-        db.transacoes.filter(function (t) { return t.usuarioId === usuarioId; })
+        db.transacoes.filter(function (t) { return t.usuarioId === usuarioId && (!cId || t.carteiraId === cId); })
     );
     return processarCarteira(transacoes, ativosPorIdDe(db)).posicoes;
 }
@@ -2413,9 +2535,11 @@ function custoMedioPorAtivo(usuarioId) {
 // [PROV v1] total de proventos por ativo: { ativoId: { total, qtd, ultimo } }
 function proventosPorAtivo(usuarioId) {
     var db = loadDB();
+    var cId = carteiraIdAtual();
     var mapa = {};
     db.transacoes.forEach(function (t) {
         if (t.usuarioId !== usuarioId || t.tipo !== 'PROVENTO') return;
+        if (cId && t.carteiraId !== cId) return;
         var m = mapa[t.ativoId] || (mapa[t.ativoId] = { total: 0, qtd: 0, ultimo: null });
         m.total += Number(t.valor) || 0;
         m.qtd += 1;
@@ -2432,10 +2556,12 @@ function totalProventos(usuarioId) {
 // [RF v1] Posições de Renda Fixa: { ativoId: { ativo, aportado, rendimento, saldo, yield } }
 function posicoesRF(usuarioId) {
     var db = loadDB();
+    var cId = carteiraIdAtual();
     var ativosPorId = ativosPorIdDe(db);
     var mapa = {};
     db.transacoes.forEach(function (t) {
         if (t.usuarioId !== usuarioId) return;
+        if (cId && t.carteiraId !== cId) return;
         var ativo = ativosPorId[t.ativoId];
         if (!ativo || ativo.classe !== 'RENDA_FIXA') return;
         if (!mapa[t.ativoId]) mapa[t.ativoId] = { ativo: ativo, aportado: 0, rendimento: 0, resgatado: 0 };
@@ -2461,9 +2587,11 @@ function totalAportadoRF(usuarioId) {
 // [CRIPTO v2] soma as pernas, então entende entrada, saída e conversão.
 function quantidadeDisponivel(usuarioId, ativoId, excluirTransacaoId) {
     var db = loadDB();
+    var cId = carteiraIdAtual();
     var quantidade = 0;
     db.transacoes.forEach(function (t) {
         if (t.usuarioId !== usuarioId) return;
+        if (cId && t.carteiraId !== cId) return;
         if (excluirTransacaoId && t.id === excluirTransacaoId) return;
         pernasDaTransacao(t).forEach(function (p) {
             if (p.ativoId === ativoId) quantidade += p.delta;
@@ -2668,9 +2796,10 @@ function alocacaoPorClasse(usuarioId) {
 // [RF v1] APORTEs de Renda Fixa entram como delta positivo no mês correspondente.
 function evolucaoMensal(usuarioId) {
     var db = loadDB();
+    var cId = carteiraIdAtual();
     var ativosPorId = ativosPorIdDe(db);
     var transacoes = ordenarTransacoes(
-        db.transacoes.filter(function (t) { return t.usuarioId === usuarioId; })
+        db.transacoes.filter(function (t) { return t.usuarioId === usuarioId && (!cId || t.carteiraId === cId); })
     );
     var deltaCusto = processarCarteira(transacoes, ativosPorId).deltaCusto;
 
@@ -2958,8 +3087,9 @@ function htmlChartJs(id, dados, formatoY, altura, tipo) {
 // Retorna null se não houver nenhum ponto válido.
 function dadosChartJsRentabAcumulada(usuarioId, mtd, ibovMapa, filtro, ifixMapa) {
     var db = loadDB();
+    var cIdChart = carteiraIdAtual();
     var todoHist = (db.historicoRentabilidade || []).filter(function (h) {
-        return h.usuarioId === usuarioId;
+        return h.usuarioId === usuarioId && (!cIdChart || h.carteiraId === cIdChart);
     });
     todoHist.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
 
@@ -4625,8 +4755,9 @@ function verificarPosicaoEncerrada(usuarioId, dados) {
         return rfPos ? rfPos.saldo <= 0 : false;
     }
     var ticker = (dados.ticker || '').toUpperCase().trim();
-    var carteira = processarCarteira(usuarioId);
-    var posAtivo = carteira.posicoes.filter(function (p) { return p.ativo.ticker === ticker; })[0];
+    var posicoes = custoMedioPorAtivo(usuarioId);
+    var posAtivo = Object.keys(posicoes).map(function (k) { return posicoes[k]; })
+        .filter(function (p) { return p.ativo && p.ativo.ticker === ticker; })[0];
     return !posAtivo || posAtivo.quantidade <= 0;
 }
 
@@ -4866,7 +4997,10 @@ function salvarTransacao(usuarioId, dados, editId) {
             var tRF = db.transacoes.filter(function (x) { return x.id === editId; })[0];
             if (tRF) { delete tRF.subtipo; Object.assign(tRF, registro); }
         } else {
-            db.transacoes.push(Object.assign({ id: db.nextId++, usuarioId: usuarioId, criadoEm: Date.now() }, registro));
+            var cIdTRF = carteiraIdAtual();
+            var novaRF = Object.assign({ id: db.nextId++, usuarioId: usuarioId, criadoEm: Date.now() }, registro);
+            if (cIdTRF) novaRF.carteiraId = cIdTRF;
+            db.transacoes.push(novaRF);
         }
         saveDB(db);
         return;
@@ -4908,11 +5042,10 @@ function salvarTransacao(usuarioId, dados, editId) {
         delete t.descricao; // [CONV v1] limpa para que editar sem nota remove a nota
         Object.assign(t, registro);
     } else {
-        db.transacoes.push(Object.assign({
-            id: db.nextId++,
-            usuarioId: usuarioId,
-            criadoEm: Date.now(),
-        }, registro));
+        var cIdT = carteiraIdAtual();
+        var novaT = Object.assign({ id: db.nextId++, usuarioId: usuarioId, criadoEm: Date.now() }, registro);
+        if (cIdT) novaT.carteiraId = cIdT;
+        db.transacoes.push(novaT);
     }
     saveDB(db);
 }
@@ -4947,6 +5080,8 @@ function excluirTransacao(id) {
    ================================================================= */
 
 var drawerState = null; // null = fechado/vazio; ou {open, editId, values, errors}
+// [MULTI v1] estado do drawer de carteira: null ou { carteiraId }
+var drawerCarteiraState = null;
 // [BACKUP v1] estado da tela de backup: { textoExport, previa }. Zera ao
 // sair da página (ver navegar()).
 var backupState = null;
@@ -4971,7 +5106,7 @@ var _analiseCarregando = false;   // [ANAL v1] true durante o loading simulado
 
 // [UI v1 · 29/09/2026] versão do app e rodapé de todas as páginas logadas.
 // Mudou a versão? Troque só APP_VERSAO.
-var APP_VERSAO = '1.4.0';
+var APP_VERSAO = '1.5.0';
 var APP_ANO = 2026;
 
 function rodapeHTML() {
@@ -5003,7 +5138,35 @@ function alternarTema() {
 function saudacaoHTML() {
     var u = currentUser();
     if (!u) return '';
-    return '<span class="saudacao">Olá, <strong>' + escapeHtml(u.username) + '</strong></span>';
+    var cId = carteiraIdAtual();
+    var carteiras = carteirasDoUsuario(u.id);
+    var carteiraAtiva = carteiras.filter(function (c) { return c.id === cId; })[0] || carteiras[0];
+    var nomeCarteira = carteiraAtiva ? escapeHtml(carteiraAtiva.nome) : 'Principal';
+
+    var itens = carteiras.map(function (c) {
+        var ativa = c.id === (carteiraAtiva ? carteiraAtiva.id : -1);
+        return '<div class="carteira-dropdown-item' + (ativa ? ' ativa' : '') + '" data-trocar-carteira="' + c.id + '">' +
+            '<span class="carteira-dropdown-item-check">' + (ativa ? '✓' : '&nbsp;&nbsp;') + '</span>' +
+            '<span class="carteira-dropdown-item-nome">' + escapeHtml(c.nome) + '</span>' +
+            '<button class="carteira-dropdown-item-edit" data-editar-carteira="' + c.id + '" title="Renomear" type="button">' +
+            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
+            '</button></div>';
+    }).join('');
+
+    return '<div class="carteira-switcher">' +
+        '<button type="button" class="carteira-switcher-btn" id="btn-carteira-switcher">' +
+        'Olá, <strong>' + escapeHtml(u.username) + '</strong>' +
+        '<span style="color:var(--color-muted);margin:0 2px">·</span>' +
+        '<span class="cs-nome">' + nomeCarteira + '</span>' +
+        '<span class="cs-seta">▼</span>' +
+        '</button>' +
+        '<div class="carteira-dropdown" id="carteira-dropdown">' +
+        '<div class="carteira-dropdown-header">Carteiras</div>' +
+        itens +
+        '<div class="carteira-dropdown-nova" data-nova-carteira>' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+        ' Nova carteira</div>' +
+        '</div></div>';
 }
 
 function topbarHTML(active) {
@@ -5453,6 +5616,92 @@ function corpoFormularioHTML(v, e, editId, usuarioId) {
     return html;
 }
 
+// [MULTI v1] Injeta/atualiza o drawer de carteira no DOM e abre
+function _abrirDrawerCarteira() {
+    var app = document.getElementById('app');
+    if (!app) return;
+    // Remove drawer existente (overlay vem ANTES do drawer, igual ao padrão do app)
+    var old = document.getElementById('drawer-carteira');
+    if (old) {
+        var oldOv = old.previousElementSibling;
+        old.remove();
+        if (oldOv && oldOv.classList.contains('drawer-overlay')) oldOv.remove();
+    }
+    // Cria container e injeta o drawer HTML
+    var wrapper = document.createElement('div');
+    wrapper.innerHTML = drawerCarteiraHTML();
+    while (wrapper.firstChild) app.appendChild(wrapper.firstChild);
+    // Abre (overlay é previousElementSibling do drawer)
+    var dcEl = document.getElementById('drawer-carteira');
+    if (dcEl) {
+        dcEl.classList.add('open');
+        var dcOv = dcEl.previousElementSibling;
+        if (dcOv && dcOv.classList.contains('drawer-overlay')) dcOv.classList.add('open');
+        var pc = document.querySelector('.page-content');
+        if (pc) pc.inert = true;
+        document.body.style.overflow = 'hidden';
+        var firstField = dcEl.querySelector('input');
+        if (firstField) { firstField.focus(); firstField.select(); }
+    }
+}
+
+// [MULTI v1] Gaveta de gerenciamento de carteira (renomear / criar)
+function drawerCarteiraHTML() {
+    var state = drawerCarteiraState || {};
+    var open = !!state.open;
+    var cId = state.carteiraId || null;
+    var u = currentUser();
+    if (!u) return '<div class="drawer-overlay"></div>';
+
+    var carteiras = carteirasDoUsuario(u.id);
+    var carteira = cId ? carteiras.filter(function (c) { return c.id === cId; })[0] : null;
+    var isNova = !cId;
+    var titulo = isNova ? 'Nova carteira' : 'Gerenciar carteira';
+    var nomeAtual = carteira ? escapeHtml(carteira.nome) : '';
+    var erro = state.erro || '';
+
+    // saldos da carteira ativa (para informação)
+    var infoSaldo = '';
+    if (carteira) {
+        var cIdOld = carteiraIdAtual(); // salva temporariamente
+        // Para calcular saldos: precisamos mudar temporariamente a sessão para esta carteira
+        // Mas isso mudaria o estado global — evitar. Mostramos só o nome por enquanto.
+        // (saldos serão calculados apenas para a carteira ativa)
+        if (cId === carteiraIdAtual()) {
+            var posAtivas = posicoesAtuais(u.id);
+            var valorInv = posAtivas.reduce(function (s, p) { return s + (p.valorInvestido || 0); }, 0);
+            var rfPos = posicoesRF(u.id);
+            var saldoRF = rfPos.reduce(function (s, p) { return s + Math.max(0, p.saldo); }, 0);
+            var nPosicoes = posAtivas.length + rfPos.filter(function (p) { return p.saldo > 0; }).length;
+            infoSaldo = '<div style="display:flex;gap:8px;margin-bottom:16px;">' +
+                '<div style="flex:1;padding:10px 12px;background:var(--color-surface-muted);border-radius:var(--radius-xs);">' +
+                '<div style="font-size:var(--text-xs);color:var(--color-muted);margin-bottom:2px;">Total investido</div>' +
+                '<div style="font-size:var(--text-md);font-weight:600;">R$ ' + fmt2(valorInv + saldoRF) + '</div></div>' +
+                '<div style="flex:1;padding:10px 12px;background:var(--color-surface-muted);border-radius:var(--radius-xs);">' +
+                '<div style="font-size:var(--text-xs);color:var(--color-muted);margin-bottom:2px;">Posições ativas</div>' +
+                '<div style="font-size:var(--text-md);font-weight:600;">' + nPosicoes + '</div></div>' +
+                '</div>';
+        }
+    }
+
+    var body = '<div class="field">' +
+        '<label for="carteira-nome-input">Nome da carteira</label>' +
+        '<input type="text" id="carteira-nome-input" name="carteira_nome" class="input' + (erro ? ' error' : '') + '" ' +
+        'value="' + nomeAtual + '" maxlength="50" placeholder="Ex.: Principal, Aposentadoria, Cripto…" autofocus>' +
+        (erro ? '<span class="field-error">' + escapeHtml(erro) + '</span>' : '') +
+        '</div>';
+
+    return '<div class="drawer-overlay"></div>' +
+        '<div class="drawer' + (open ? ' open' : '') + '" id="drawer-carteira">' +
+        '<div class="drawer-header"><h2 class="drawer-title">' + titulo + '</h2>' +
+        '<button type="button" class="drawer-close" data-drawer-close aria-label="Fechar">&#x2715;</button></div>' +
+        '<div class="drawer-body">' + infoSaldo + body + '</div>' +
+        '<div class="drawer-footer">' +
+        '<button type="button" class="button primary" data-acao="salvar-carteira">Salvar</button>' +
+        '<button type="button" class="button ghost" data-drawer-close>Cancelar</button>' +
+        '</div></div>';
+}
+
 // Porte de _drawer_transacao.html. `state` é o drawerState transiente (ou
 // null pra fechado/vazio).
 function drawerTransacaoHTML(state) {
@@ -5782,10 +6031,12 @@ function patrimonioNaData(usuarioId, anoMes, precosMensaisPorTicker) {
     var ativosPorId = ativosPorIdDe(db);
     var dataLimite = _ultimoDiaDoMes(anoMes);
 
+    var cIdPN = carteiraIdAtual();
     // Posições de ativos que têm motor (ACAO/FII/BDR/CRIPTO)
     var txsMotor = ordenarTransacoes(
         (db.transacoes || []).filter(function (t) {
-            return t.usuarioId === usuarioId && t.data <= dataLimite
+            return t.usuarioId === usuarioId && (!cIdPN || t.carteiraId === cIdPN)
+                && t.data <= dataLimite
                 && t.tipo !== 'PROVENTO' && t.tipo !== 'APORTE' && t.tipo !== 'RENDIMENTO_RF';
         })
     );
@@ -5818,7 +6069,8 @@ function patrimonioNaData(usuarioId, anoMes, precosMensaisPorTicker) {
     var ativosRF = (db.ativos || []).filter(function (a) { return a.classe === 'RENDA_FIXA'; });
     ativosRF.forEach(function (ativo) {
         var saldoRF = (db.transacoes || []).filter(function (t) {
-            return t.usuarioId === usuarioId && t.ativoId === ativo.id && t.data <= dataLimite;
+            return t.usuarioId === usuarioId && (!cIdPN || t.carteiraId === cIdPN)
+                && t.ativoId === ativo.id && t.data <= dataLimite;
         }).reduce(function (s, t) {
             if (t.tipo === 'APORTE')        return s + Number(t.valor || 0);
             if (t.tipo === 'RENDIMENTO_RF') return s + Number(t.valor || 0);
@@ -5838,10 +6090,11 @@ function patrimonioNaData(usuarioId, anoMes, precosMensaisPorTicker) {
 // tanto no patrimônio final (via patrimonioNaData) quanto aqui, inflando ~0,8 p.p./mês.
 function proventosNoMes(usuarioId, anoMes) {
     var db = loadDB();
+    var cIdPM = carteiraIdAtual();
     var ini = anoMes + '-01';
     var fim = _ultimoDiaDoMes(anoMes);
     return (db.transacoes || []).filter(function (t) {
-        return t.usuarioId === usuarioId
+        return t.usuarioId === usuarioId && (!cIdPM || t.carteiraId === cIdPM)
             && t.tipo === 'PROVENTO'
             && t.data >= ini && t.data <= fim;
     }).reduce(function (s, t) { return s + Number(t.valor || 0); }, 0);
@@ -5852,11 +6105,13 @@ function proventosNoMes(usuarioId, anoMes) {
 // Não inclui proventos (tratados separadamente na fórmula).
 function aportesLiquidosNoMes(usuarioId, anoMes) {
     var db = loadDB();
+    var cIdAL = carteiraIdAtual();
     var ativosPorId = ativosPorIdDe(db);
     var ini = anoMes + '-01';
     var fim = _ultimoDiaDoMes(anoMes);
     return (db.transacoes || []).filter(function (t) {
-        return t.usuarioId === usuarioId && t.data >= ini && t.data <= fim;
+        return t.usuarioId === usuarioId && (!cIdAL || t.carteiraId === cIdAL)
+            && t.data >= ini && t.data <= fim;
     }).reduce(function (s, t) {
         var ativo = ativosPorId[t.ativoId];
         if (t.tipo === 'COMPRA')  return s + (Number(t.quantidade) * Number(t.precoUnitario) + (Number(t.corretagemTaxas) || 0));
@@ -5939,11 +6194,13 @@ function _anoMesAtual() {
 // Patrimônio a valor de mercado AGORA (cotações ao vivo + RF contábil)
 function patrimonioMercadoAtual(usuarioId, cotacoes) {
     var db = loadDB();
+    var cIdMA = carteiraIdAtual();
     var ativosPorId = ativosPorIdDe(db);
     var hojeISO = new Date().toISOString().slice(0, 10);
     var txsMotor = ordenarTransacoes(
         (db.transacoes || []).filter(function (t) {
-            return t.usuarioId === usuarioId && t.data <= hojeISO
+            return t.usuarioId === usuarioId && (!cIdMA || t.carteiraId === cIdMA)
+                && t.data <= hojeISO
                 && t.tipo !== 'PROVENTO' && t.tipo !== 'APORTE' && t.tipo !== 'RENDIMENTO_RF';
         })
     );
@@ -5964,7 +6221,8 @@ function patrimonioMercadoAtual(usuarioId, cotacoes) {
     });
     (db.ativos || []).filter(function (a) { return a.classe === 'RENDA_FIXA'; }).forEach(function (ativo) {
         var saldoRF = (db.transacoes || []).filter(function (t) {
-            return t.usuarioId === usuarioId && t.ativoId === ativo.id && t.data <= hojeISO;
+            return t.usuarioId === usuarioId && (!cIdMA || t.carteiraId === cIdMA)
+                && t.ativoId === ativo.id && t.data <= hojeISO;
         }).reduce(function (s, t) {
             if (t.tipo === 'APORTE')        return s + Number(t.valor || 0);
             if (t.tipo === 'RENDIMENTO_RF') return s + Number(t.valor || 0);
@@ -5995,8 +6253,9 @@ function obterMTD(usuarioId, cotacoes, cdiHoje) {
     if (patrimonioInicio <= 0) {
         // Fallback: tenta o valor armazenado no histórico
         var db = loadDB();
+        var cIdMTD = carteiraIdAtual();
         var histPrev = (db.historicoRentabilidade || []).filter(function (h) {
-            return h.usuarioId === usuarioId && h.mes === anoMesAnterior;
+            return h.usuarioId === usuarioId && (!cIdMTD || h.carteiraId === cIdMTD) && h.mes === anoMesAnterior;
         })[0];
         patrimonioInicio = histPrev && histPrev.patrimonioFim != null ? Number(histPrev.patrimonioFim) : 0;
     }
@@ -6064,8 +6323,11 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
 
     db.historicoRentabilidade = db.historicoRentabilidade || [];
 
-    // Descobre o mês mais antigo com transação deste usuário
-    var txs = (db.transacoes || []).filter(function (t) { return t.usuarioId === usuarioId && t.data; });
+    var cIdFech = carteiraIdAtual();
+    // Descobre o mês mais antigo com transação deste usuário/carteira
+    var txs = (db.transacoes || []).filter(function (t) {
+        return t.usuarioId === usuarioId && (!cIdFech || t.carteiraId === cIdFech) && t.data;
+    });
     if (!txs.length) return Promise.resolve(0);
     txs.sort(function (a, b) { return a.data < b.data ? -1 : 1; });
     var primeiraTx = txs[0].data;
@@ -6083,7 +6345,7 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
         for (var mes = mStart; mes <= mEnd; mes++) {
             var anoMes = ano + '-' + (mes < 10 ? '0' : '') + mes;
             var jaFechou = db.historicoRentabilidade.some(function (h) {
-                return h.usuarioId === usuarioId && h.mes === anoMes;
+                return h.usuarioId === usuarioId && (!cIdFech || h.carteiraId === cIdFech) && h.mes === anoMes;
             });
             if (!jaFechou) pendentes.push(anoMes);
         }
@@ -6091,17 +6353,15 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
     if (!pendentes.length) return Promise.resolve(0);
 
     // Descobre todos os tickers com posição em algum dos meses pendentes
-    // (conservador: usa todos os ativos do usuário — pré-filtragem por mês
-    // é opcional e seria mais complexa; na prática a carteira não tem dezenas
-    // de tickers)
     var dbNow = loadDB();
     var ativosPorId = ativosPorIdDe(dbNow);
     var tickersComClasse = [];
     var vistos = {};
-    // Mapeia ativoId → data mínima de transação do usuário
+    // Mapeia ativoId → data mínima de transação do usuário/carteira
     var minDataPorAtivo = {};
     (dbNow.transacoes || []).forEach(function (t) {
         if (t.usuarioId !== usuarioId || !t.data) return;
+        if (cIdFech && t.carteiraId !== cIdFech) return;
         if (!minDataPorAtivo[t.ativoId] || t.data < minDataPorAtivo[t.ativoId]) {
             minDataPorAtivo[t.ativoId] = t.data;
         }
@@ -6164,10 +6424,10 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                     var dbSave = loadDB();
                     dbSave.historicoRentabilidade = dbSave.historicoRentabilidade || [];
                     var jaSalvou = dbSave.historicoRentabilidade.some(function (h) {
-                        return h.usuarioId === usuarioId && h.mes === am;
+                        return h.usuarioId === usuarioId && (!cIdFech || h.carteiraId === cIdFech) && h.mes === am;
                     });
                     if (!jaSalvou) {
-                        dbSave.historicoRentabilidade.push({
+                        var entradaHist = {
                             mes: am,
                             usuarioId: usuarioId,
                             rentabilidade: resultado.rentabilidade,
@@ -6177,7 +6437,9 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                             patrimonioFim: resultado.patrimonioFim,
                             aportesLiquidos: resultado.aportesLiquidos,
                             proventos: resultado.proventos,
-                        });
+                        };
+                        if (cIdFech) entradaHist.carteiraId = cIdFech;
+                        dbSave.historicoRentabilidade.push(entradaHist);
                         saveDB(dbSave);
 
                         // [FECH v1] snapshot das cotações usadas neste fechamento
@@ -6209,6 +6471,7 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
             var temNovo = false;
             (dbFinal.historicoRentabilidade || []).forEach(function (h) {
                 if (h.usuarioId !== usuarioId) return;
+                if (cIdFech && h.carteiraId !== cIdFech) return;
                 if (fechAtual[h.mes]) {
                     // Snapshot existe: atualizar IBOV/USDBRL se o valor mudou
                     var ibovNovo   = ibovMapa[h.mes];
@@ -6245,17 +6508,22 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
 // por mês (na abertura seguinte ao fechamento do mês).
 function completarCotacoesFechamentoCripto(usuarioId) {
     var db = loadDB();
+    var cIdCC = carteiraIdAtual();
     var fechamentos = loadCotacoesFechamento();
-    var historico = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; });
+    var historico = (db.historicoRentabilidade || []).filter(function (h) {
+        return h.usuarioId === usuarioId && (!cIdCC || h.carteiraId === cIdCC);
+    });
     if (!historico.length) return Promise.resolve();
 
     // Mapa ativoId → ativo
     var ativoMap = {};
     (db.ativos || []).forEach(function (a) { ativoMap[a.id] = a; });
 
-    // Tickers cripto do usuário com dataInicio (primeira transação)
+    // Tickers cripto desta carteira com dataInicio (primeira transação)
     var criptoInfo = {}; // { ticker: dataInicio }
-    (db.transacoes || []).filter(function (t) { return t.usuarioId === usuarioId; }).forEach(function (t) {
+    (db.transacoes || []).filter(function (t) {
+        return t.usuarioId === usuarioId && (!cIdCC || t.carteiraId === cIdCC);
+    }).forEach(function (t) {
         var a = ativoMap[t.ativoId];
         if (!a || a.classe !== 'CRIPTO') return;
         if (!criptoInfo[a.ticker] || t.data < criptoInfo[a.ticker]) criptoInfo[a.ticker] = t.data;
@@ -6299,13 +6567,17 @@ function completarCotacoesFechamentoCripto(usuarioId) {
 // Busca histórico USD-BRL e preenche snapshots de cotacoesFechamento que ainda não têm USDBRL.
 function completarUsdBrlFechamento(usuarioId) {
     var db = loadDB();
-    var historico = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; });
+    var cIdUB = carteiraIdAtual();
+    var historico = (db.historicoRentabilidade || []).filter(function (h) {
+        return h.usuarioId === usuarioId && (!cIdUB || h.carteiraId === cIdUB);
+    });
     if (!historico.length) return Promise.resolve();
 
-    // data mais antiga de qualquer transação do usuário
+    // data mais antiga de qualquer transação desta carteira
     var minData = null;
     (db.transacoes || []).forEach(function (t) {
-        if (t.usuarioId === usuarioId && t.data && (!minData || t.data < minData)) minData = t.data;
+        if (t.usuarioId === usuarioId && (!cIdUB || t.carteiraId === cIdUB)
+            && t.data && (!minData || t.data < minData)) minData = t.data;
     });
 
     return buscarUsdBrlMensal(minData).then(function (usdBrlMapa) {
@@ -6328,6 +6600,7 @@ function completarUsdBrlFechamento(usuarioId) {
 // (stockHist + ibovHist). Roda no boot, sem fetch. Cripto fica vazio até o próximo fechamento.
 function popularCotacoesFechamentoRetroativo(usuarioId) {
     var db = loadDB();
+    var cIdRet = carteiraIdAtual();
     var fechamentos = loadCotacoesFechamento();
     var sh = loadStockHist();
     var ih = loadIBOVHist();
@@ -6335,7 +6608,9 @@ function popularCotacoesFechamentoRetroativo(usuarioId) {
     var uh = loadUsdBrlHist();
     var temNovo = false;
     (db.historicoRentabilidade || []).forEach(function (h) {
-        if (h.usuarioId !== usuarioId || fechamentos[h.mes]) return;
+        if (h.usuarioId !== usuarioId) return;
+        if (cIdRet && h.carteiraId !== cIdRet) return;
+        if (fechamentos[h.mes]) return;
         var snap = {};
         Object.keys(sh).forEach(function (tk) { var p = sh[tk][h.mes]; if (p) snap[tk] = p; });
         if (ih[h.mes])  snap['IBOV']   = ih[h.mes];
@@ -6357,7 +6632,10 @@ function atualizarHeatmapDOM(usuarioId) {
 // Células do heatmap (só o miolo — sem wrapper externo). mtd e filtro opcionais.
 function heatmapCelulasHTML(usuarioId, mtd, filtro) {
     var db = loadDB();
-    var hist = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; });
+    var cIdHM = carteiraIdAtual();
+    var hist = (db.historicoRentabilidade || []).filter(function (h) {
+        return h.usuarioId === usuarioId && (!cIdHM || h.carteiraId === cIdHM);
+    });
     hist.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
     if (mtd && !hist.some(function (h) { return h.mes === mtd.mes; })) {
         hist = hist.concat([mtd]);
@@ -7027,8 +7305,9 @@ function renderPosicoes(user) {
 // [PROV v3] ativoId opcional — filtra por ativo específico
 function evolucaoMensalProventos(usuarioId, ativoId) {
     var db = loadDB();
+    var cId = carteiraIdAtual();
     var provs = db.transacoes.filter(function (t) {
-        return t.usuarioId === usuarioId && t.tipo === 'PROVENTO' &&
+        return t.usuarioId === usuarioId && (!cId || t.carteiraId === cId) && t.tipo === 'PROVENTO' &&
             (!ativoId || ativoId === 'todos' || t.ativoId === ativoId);
     });
     if (!provs.length) return [];
@@ -7066,8 +7345,11 @@ function evolucaoMensalProventos(usuarioId, ativoId) {
 // [PROV v3] página dedicada de proventos com filtro por ativo
 function renderProventos(user) {
     var db = loadDB();
+    var cIdProv = carteiraIdAtual();
     var todosProvs = db.transacoes
-        .filter(function (t) { return t.usuarioId === user.id && t.tipo === 'PROVENTO'; })
+        .filter(function (t) {
+            return t.usuarioId === user.id && (!cIdProv || t.carteiraId === cIdProv) && t.tipo === 'PROVENTO';
+        })
         .slice()
         .sort(function (a, b) { return a.data < b.data ? 1 : a.data > b.data ? -1 : 0; });
 
@@ -7257,8 +7539,12 @@ function renderProventos(user) {
 
 function renderTransacoes(user) {
     var db = loadDB();
+    var cIdTrans = carteiraIdAtual();
     var todasTransacoes = db.transacoes
-        .filter(function (t) { return t.usuarioId === user.id && t.tipo !== 'PROVENTO' && t.tipo !== 'RENDIMENTO_RF'; }) // [PROV v2] proventos ficam na página /proventos; [RF v1] rendimentos de RF ficam invisíveis aqui
+        .filter(function (t) {
+            return t.usuarioId === user.id && (!cIdTrans || t.carteiraId === cIdTrans)
+                && t.tipo !== 'PROVENTO' && t.tipo !== 'RENDIMENTO_RF';
+        }) // [PROV v2] proventos ficam na página /proventos; [RF v1] rendimentos de RF ficam invisíveis aqui
         .slice()
         .sort(function (a, b) { return a.data < b.data ? 1 : a.data > b.data ? -1 : 0; }); // -data (mais recente primeiro)
 
@@ -7361,6 +7647,8 @@ function renderTransacoes(user) {
         CONVERSAO: '<span class="trend neutral">Conversão</span>',
         PROVENTO: '<span class="trend provento">Provento</span>', // [PROV v1]
         APORTE: '<span class="trend up">Aporte</span>', // [RF v1]
+        RENDIMENTO_RF: '<span class="trend up">Rendimento RF</span>', // [RF v1]
+        RESGATE: '<span class="trend down">Resgate</span>', // [RF v1]
     };
 
     var corpo;
@@ -7386,6 +7674,10 @@ function renderTransacoes(user) {
             } else if (t.tipo === 'APORTE') { // [RF v1]
                 qtdCell = '—';
                 totalCell = 'R$ ' + fmt2(t.valor);
+            } else if (t.tipo === 'RESGATE') { // [RF v1]
+                qtdCell = '—';
+                totalCell = t.valor > 0 ? '<span style="color:var(--color-danger,#dc2626);">− R$ ' + fmt2(t.valor) + '</span>'
+                    : '<span style="color:var(--color-muted);font-style:italic;">valor não registrado</span>';
             } else if (t.tipo === 'ENTRADA') {
                 totalCell = 'custo zero';
             } else if (t.tipo === 'STAKE') { // [STAKE v1]
@@ -7763,9 +8055,14 @@ document.addEventListener('click', function (event) {
     if (closeBtn) {
         var d = closeBtn.closest('.drawer');
         if (d) {
-            var ov = d.previousElementSibling;
+            if (d.id === 'drawer-carteira') drawerCarteiraState = null;
+            // Overlay pode estar antes OU depois do drawer dependendo do padrão
+            var ov = (d.nextElementSibling && d.nextElementSibling.classList.contains('drawer-overlay'))
+                ? d.nextElementSibling
+                : (d.previousElementSibling && d.previousElementSibling.classList.contains('drawer-overlay'))
+                ? d.previousElementSibling : null;
             d.classList.remove('open');
-            if (ov && ov.classList.contains('drawer-overlay')) ov.classList.remove('open');
+            if (ov) ov.classList.remove('open');
             var pc = document.querySelector('.page-content');
             if (pc) pc.inert = false;
             document.body.style.overflow = '';
@@ -7776,6 +8073,7 @@ document.addEventListener('click', function (event) {
     if (event.target.classList.contains('drawer-overlay')) {
         var openDrawerEl = document.querySelector('.drawer.open');
         if (openDrawerEl) {
+            if (openDrawerEl.id === 'drawer-carteira') drawerCarteiraState = null;
             openDrawerEl.classList.remove('open');
             event.target.classList.remove('open');
             var pc2 = document.querySelector('.page-content');
@@ -7824,6 +8122,96 @@ document.addEventListener('click', function (event) {
             s.classList.toggle('ativa', s.getAttribute('data-secao') === _analiseSecao);
         });
         return;
+    }
+
+    // [MULTI v1] seletor de carteiras — toggle dropdown
+    var swBtn = event.target.closest('#btn-carteira-switcher');
+    if (swBtn) {
+        var dd = document.getElementById('carteira-dropdown');
+        if (dd) {
+            var abrindo = !dd.classList.contains('aberta');
+            dd.classList.toggle('aberta', abrindo);
+            swBtn.classList.toggle('aberto', abrindo);
+        }
+        return;
+    }
+
+    // [MULTI v1] trocar carteira ativa
+    var trocarBtn = event.target.closest('[data-trocar-carteira]');
+    if (trocarBtn && !event.target.closest('[data-editar-carteira]')) {
+        var novaCId = Number(trocarBtn.getAttribute('data-trocar-carteira'));
+        var u2 = currentUser();
+        if (u2 && novaCId) {
+            setSession(u2.id, novaCId);
+            _mtdCache = null;
+            navegar(rotaAtual || '/');
+        }
+        return;
+    }
+
+    // [MULTI v1] abrir gaveta para renomear carteira
+    var editarCarteiraBtn = event.target.closest('[data-editar-carteira]');
+    if (editarCarteiraBtn) {
+        var editarCId = Number(editarCarteiraBtn.getAttribute('data-editar-carteira'));
+        // Fecha o dropdown
+        var dd2 = document.getElementById('carteira-dropdown');
+        if (dd2) dd2.classList.remove('aberta');
+        var sw2 = document.getElementById('btn-carteira-switcher');
+        if (sw2) sw2.classList.remove('aberto');
+        drawerCarteiraState = { open: true, carteiraId: editarCId, erro: '' };
+        _abrirDrawerCarteira();
+        return;
+    }
+
+    // [MULTI v1] nova carteira
+    if (event.target.closest('[data-nova-carteira]')) {
+        var dd3 = document.getElementById('carteira-dropdown');
+        if (dd3) dd3.classList.remove('aberta');
+        var sw3 = document.getElementById('btn-carteira-switcher');
+        if (sw3) sw3.classList.remove('aberto');
+        drawerCarteiraState = { open: true, carteiraId: null, erro: '' };
+        _abrirDrawerCarteira();
+        return;
+    }
+
+    // [MULTI v1] salvar nome de carteira
+    if (event.target.closest('[data-acao="salvar-carteira"]')) {
+        var inputNome = document.getElementById('carteira-nome-input');
+        var novoNome = inputNome ? inputNome.value.trim() : '';
+        if (!novoNome) {
+            drawerCarteiraState = Object.assign({}, drawerCarteiraState, { erro: 'O nome não pode ficar vazio.' });
+            _abrirDrawerCarteira();
+            return;
+        }
+        var uSave = currentUser();
+        if (!uSave) return;
+        if (drawerCarteiraState && drawerCarteiraState.carteiraId) {
+            renomearCarteira(drawerCarteiraState.carteiraId, novoNome);
+        } else {
+            var nova = criarCarteira(uSave.id, novoNome);
+            setSession(uSave.id, nova.id);
+            _mtdCache = null;
+        }
+        drawerCarteiraState = null;
+        var dcEl = document.getElementById('drawer-carteira');
+        if (dcEl) {
+            dcEl.classList.remove('open');
+            var dcOv = dcEl.previousElementSibling;
+            if (dcOv && dcOv.classList.contains('drawer-overlay')) dcOv.classList.remove('open');
+            var dcPc = document.querySelector('.page-content');
+            if (dcPc) dcPc.inert = false;
+            document.body.style.overflow = '';
+        }
+        navegar(rotaAtual || '/');
+        return;
+    }
+
+    // Fechar dropdown ao clicar fora
+    var ddEl = document.getElementById('carteira-dropdown');
+    if (ddEl && ddEl.classList.contains('aberta') && !event.target.closest('.carteira-switcher')) {
+        ddEl.classList.remove('aberta');
+        var swEl = document.getElementById('btn-carteira-switcher');
+        if (swEl) swEl.classList.remove('aberto');
     }
 
     // [MOBILE v1] dois botões de sair (topo e menu do celular): usa data-logout
@@ -8071,7 +8459,12 @@ function processarFormulario(form) {
         var fd = new FormData(form);
         var user = autenticar(fd.get('username'), fd.get('password'));
         if (user) {
-            setSession(user.id);
+            // [MULTI v1] determina carteira ativa: primeira carteira do usuário
+            var dbLogin = loadDB();
+            var carteiraLogin = (dbLogin.carteiras || [])
+                .filter(function (c) { return c.usuarioId === user.id; })
+                .sort(function (a, b) { return a.criadoEm - b.criadoEm; })[0];
+            setSession(user.id, carteiraLogin ? carteiraLogin.id : null);
             drawerState = null;
             navegar('/dashboard'); // [NAV v1]
         } else {
@@ -8489,17 +8882,19 @@ var balanceamentoState = null; // { aporte } transiente da página
 
 function lerBalanceamento(usuarioId) {
     var db = loadDB();
-    var b = (db.balanceamentos || {})[usuarioId] || {};
+    var chave = carteiraIdAtual() || usuarioId;
+    var b = (db.balanceamentos || {})[chave] || {};
     return { classes: b.classes || null, notas: b.notas || {} };
 }
 
 function salvarBalanceamento(usuarioId, alteracao) {
     var db = loadDB();
     db.balanceamentos = db.balanceamentos || {};
-    var atual = db.balanceamentos[usuarioId] || { classes: null, notas: {} };
+    var chave = carteiraIdAtual() || usuarioId;
+    var atual = db.balanceamentos[chave] || { classes: null, notas: {} };
     if (alteracao.classes !== undefined) atual.classes = alteracao.classes;
     if (alteracao.notas) Object.keys(alteracao.notas).forEach(function (k) { atual.notas[k] = alteracao.notas[k]; });
-    db.balanceamentos[usuarioId] = atual;
+    db.balanceamentos[chave] = atual;
     saveDB(db);
 }
 
@@ -8507,7 +8902,8 @@ function salvarBalanceamento(usuarioId, alteracao) {
 function limparNotasOrfas(usuarioId) {
     var db = loadDB();
     db.balanceamentos = db.balanceamentos || {};
-    var atual = db.balanceamentos[usuarioId];
+    var chave = carteiraIdAtual() || usuarioId;
+    var atual = db.balanceamentos[chave];
     if (!atual || !atual.notas || !Object.keys(atual.notas).length) return;
     var posicoes = posicoesAtuais(usuarioId);
     posicoesRF(usuarioId).filter(function (rf) { return rf.saldo > 0; }).forEach(function (rf) {
@@ -8519,7 +8915,7 @@ function limparNotasOrfas(usuarioId) {
         if (atual.notas[id] !== undefined) novasNotas[id] = atual.notas[id];
     });
     atual.notas = novasNotas;
-    db.balanceamentos[usuarioId] = atual;
+    db.balanceamentos[chave] = atual;
     saveDB(db);
 }
 
@@ -8973,7 +9369,10 @@ var objetivoState = null; // { open, editId, values, errors }
 
 function objetivosDoUsuario(usuarioId) {
     var db = loadDB();
-    return (db.objetivos || []).filter(function (o) { return o.usuarioId === usuarioId; });
+    var cIdObj = carteiraIdAtual();
+    return (db.objetivos || []).filter(function (o) {
+        return o.usuarioId === usuarioId && (!cIdObj || o.carteiraId === cIdObj);
+    });
 }
 
 function nomePadraoObjetivo(o) {
@@ -8985,8 +9384,10 @@ function nomePadraoObjetivo(o) {
 // quantos meses de histórico a carteira tem (mínimo 1, até `limite`)
 function mesesDeHistorico(usuarioId, limite) {
     var db = loadDB();
-    var datas = db.transacoes.filter(function (t) { return t.usuarioId === usuarioId; })
-        .map(function (t) { return t.data; }).sort();
+    var cIdMH = carteiraIdAtual();
+    var datas = db.transacoes.filter(function (t) {
+        return t.usuarioId === usuarioId && (!cIdMH || t.carteiraId === cIdMH);
+    }).map(function (t) { return t.data; }).sort();
     if (!datas.length) return 1;
     var p = datas[0].split('-');
     var hoje = new Date();
@@ -9004,9 +9405,12 @@ function inicioJanela(meses) {
 
 function aporteMensalMedio(usuarioId, classe) {
     var db = loadDB();
+    var cIdAM = carteiraIdAtual();
     var meses = mesesDeHistorico(usuarioId, 3);
     var desde = inicioJanela(meses);
-    var transacoes = ordenarTransacoes(db.transacoes.filter(function (t) { return t.usuarioId === usuarioId; }));
+    var transacoes = ordenarTransacoes(db.transacoes.filter(function (t) {
+        return t.usuarioId === usuarioId && (!cIdAM || t.carteiraId === cIdAM);
+    }));
     var ativos = ativosPorIdDe(db);
     var delta = processarCarteira(transacoes, ativos).deltaCusto;
     var soma = 0;
@@ -9020,10 +9424,14 @@ function aporteMensalMedio(usuarioId, classe) {
 
 function rendaMensalProventos(usuarioId) {
     var db = loadDB();
+    var cIdRP = carteiraIdAtual();
     var meses = mesesDeHistorico(usuarioId, 12);
     var desde = inicioJanela(meses);
     var soma = db.transacoes
-        .filter(function (t) { return t.usuarioId === usuarioId && t.tipo === 'PROVENTO' && t.data >= desde; })
+        .filter(function (t) {
+            return t.usuarioId === usuarioId && (!cIdRP || t.carteiraId === cIdRP)
+                && t.tipo === 'PROVENTO' && t.data >= desde;
+        })
         .reduce(function (s, t) { return s + (Number(t.valor) || 0); }, 0);
     return { valor: soma / meses, meses: meses };
 }
@@ -9139,7 +9547,10 @@ function salvarObjetivo(usuarioId, dados, editId) {
         Object.assign(o, registro);
         o.concluidoEm = null;
     } else {
-        db.objetivos.push(Object.assign({ id: db.nextId++, usuarioId: usuarioId, criadoEm: Date.now(), concluidoEm: null }, registro));
+        var cIdObjSave = carteiraIdAtual();
+        var novoObj = Object.assign({ id: db.nextId++, usuarioId: usuarioId, criadoEm: Date.now(), concluidoEm: null }, registro);
+        if (cIdObjSave) novoObj.carteiraId = cIdObjSave;
+        db.objetivos.push(novoObj);
     }
     saveDB(db);
 }
@@ -9492,8 +9903,11 @@ var ANTES_IMPORT_KEY = 'DASH_FINANCE_ANTES_IMPORT_V1';
 
 function montarBackup(usuarioId) {
     var db = loadDB();
+    var cIdBkp = carteiraIdAtual();
     var user = db.users.filter(function (u) { return u.id === usuarioId; })[0];
-    var transacoes = db.transacoes.filter(function (t) { return t.usuarioId === usuarioId; });
+    var transacoes = db.transacoes.filter(function (t) {
+        return t.usuarioId === usuarioId && (!cIdBkp || t.carteiraId === cIdBkp);
+    });
 
     var usados = {};
     transacoes.forEach(function (t) {
@@ -9504,7 +9918,8 @@ function montarBackup(usuarioId) {
 
     // [BAL v1] configuração do balanceamento, com notas por TICKER (os ids
     // mudam na importação). Campo opcional: backup antigo sem ele importa igual.
-    var bal = (db.balanceamentos || {})[usuarioId];
+    var chaveBal = cIdBkp || usuarioId;
+    var bal = (db.balanceamentos || {})[chaveBal];
     var balExport = null;
     if (bal) {
         var notasPorTicker = {};
@@ -9522,11 +9937,15 @@ function montarBackup(usuarioId) {
         usuario: user ? user.username : '',
         balanceamento: balExport,
         // [OBJ v1] objetivos (sem ids: são recriados na importação)
-        objetivos: (db.objetivos || []).filter(function (o) { return o.usuarioId === usuarioId; }).map(function (o) {
+        objetivos: (db.objetivos || []).filter(function (o) {
+            return o.usuarioId === usuarioId && (!cIdBkp || o.carteiraId === cIdBkp);
+        }).map(function (o) {
             return { tipo: o.tipo, classe: o.classe, nome: o.nome, alvo: o.alvo, aporteMensal: o.aporteMensal, concluidoEm: o.concluidoEm, criadoEm: o.criadoEm };
         }),
         // [CDI v1] histórico de rentabilidade mensal vs CDI
-        historicoRentabilidade: (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId; }).map(function (h) {
+        historicoRentabilidade: (db.historicoRentabilidade || []).filter(function (h) {
+            return h.usuarioId === usuarioId && (!cIdBkp || h.carteiraId === cIdBkp);
+        }).map(function (h) {
             return { mes: h.mes, rentabilidade: h.rentabilidade, cdi: h.cdi };
         }),
         // [HIST v1] histórico de preços mensais (evita re-fetch na importação).
@@ -9568,9 +9987,10 @@ function montarBackup(usuarioId) {
                 c.subtipo = t.subtipo;
                 c.valor = t.valor;
             }
-            if (t.tipo === 'APORTE' || t.tipo === 'RENDIMENTO_RF') { // [RF v1]
+            if (t.tipo === 'APORTE' || t.tipo === 'RENDIMENTO_RF' || t.tipo === 'RESGATE') { // [RF v1]
                 c.valor = t.valor;
             }
+            if (t.descricao) c.descricao = t.descricao; // [CONV v1]
             return c;
         }),
     };
@@ -9749,7 +10169,8 @@ function validarBackup(texto) {
             ativoDestinoId: t.tipo === 'CONVERSAO' ? t.ativoDestinoId : undefined,
             quantidadeDestino: t.tipo === 'CONVERSAO' ? Number(t.quantidadeDestino) : undefined,
             subtipo: t.tipo === 'PROVENTO' ? t.subtipo : undefined, // [PROV v1]
-            valor: (t.tipo === 'PROVENTO' || t.tipo === 'APORTE' || t.tipo === 'RENDIMENTO_RF') ? Number(t.valor) : undefined, // [RF v1]
+            valor: (t.tipo === 'PROVENTO' || t.tipo === 'APORTE' || t.tipo === 'RENDIMENTO_RF' || t.tipo === 'RESGATE') ? Number(t.valor) : undefined, // [RF v1]
+            descricao: t.descricao || undefined, // [CONV v1]
         };
     });
 
@@ -9806,11 +10227,16 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
         mapa[a.id] = local.id;
     });
 
-    db.transacoes = db.transacoes.filter(function (t) { return t.usuarioId !== usuarioId; });
+    var cIdImp = carteiraIdAtual();
+    // Remove transações desta carteira (ou deste usuário se sem carteira)
+    db.transacoes = db.transacoes.filter(function (t) {
+        if (t.usuarioId !== usuarioId) return true;
+        if (cIdImp) return t.carteiraId !== cIdImp;
+        return false; // sem carteiraId: remove todas do usuário (legado)
+    });
 
     // na ordem dos ids originais, pra empate de criadoEm continuar igual
-    // [IMPORT v1] mantém IDs originais das transações — colisão impossível pois as
-    // transações deste usuário foram removidas acima, e a filtragem é sempre por usuarioId.
+    // [IMPORT v1] mantém IDs originais das transações
     dados.transacoes.slice().sort(function (a, b) { return a.id - b.id; }).forEach(function (t) {
         var nova = {
             id: t.id,
@@ -9823,6 +10249,7 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
             data: t.data,
             criadoEm: t.criadoEm || Date.now(),
         };
+        if (cIdImp) nova.carteiraId = cIdImp;
         if (t.tipo === 'CONVERSAO') {
             nova.ativoDestinoId = mapa[t.ativoDestinoId];
             nova.quantidadeDestino = t.quantidadeDestino;
@@ -9831,9 +10258,10 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
             nova.subtipo = t.subtipo;
             nova.valor = t.valor;
         }
-        if (t.tipo === 'APORTE' || t.tipo === 'RENDIMENTO_RF') { // [RF v1]
+        if (t.tipo === 'APORTE' || t.tipo === 'RENDIMENTO_RF' || t.tipo === 'RESGATE') { // [RF v1]
             nova.valor = t.valor;
         }
+        if (t.descricao) nova.descricao = t.descricao; // [CONV v1]
         db.transacoes.push(nova);
     });
 
@@ -9845,21 +10273,27 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
             var a = db.ativos.filter(function (x) { return x.ticker === ticker; })[0];
             if (a) notas[a.id] = Number(dados.balanceamento.notas[ticker]);
         });
-        db.balanceamentos[usuarioId] = { classes: dados.balanceamento.classes || null, notas: notas };
+        var chaveBal = cIdImp || usuarioId;
+        db.balanceamentos[chaveBal] = { classes: dados.balanceamento.classes || null, notas: notas };
     }
 
-    // [OBJ v1] objetivos do arquivo substituem os atuais (se o arquivo tiver)
-    // [IMPORT v1] preserva ID original do objetivo quando não há colisão
+    // [OBJ v1] objetivos do arquivo substituem os atuais desta carteira
     if (dados.objetivos) {
-        db.objetivos = (db.objetivos || []).filter(function (o) { return o.usuarioId !== usuarioId; });
+        db.objetivos = (db.objetivos || []).filter(function (o) {
+            if (o.usuarioId !== usuarioId) return true;
+            if (cIdImp) return o.carteiraId !== cIdImp;
+            return false;
+        });
         dados.objetivos.forEach(function (o) {
             var idObjLivre = !(db.objetivos || []).some(function (x) { return x.id === o.id; });
             var idObj = (o.id && idObjLivre) ? o.id : db.nextId++;
-            db.objetivos.push({
+            var novoObj = {
                 id: idObj, usuarioId: usuarioId, tipo: o.tipo, classe: o.classe || null, nome: o.nome || '',
                 alvo: Number(o.alvo), aporteMensal: o.aporteMensal != null ? Number(o.aporteMensal) : null,
                 concluidoEm: o.concluidoEm || null, criadoEm: o.criadoEm || Date.now(),
-            });
+            };
+            if (cIdImp) novoObj.carteiraId = cIdImp;
+            db.objetivos.push(novoObj);
         });
     }
 
@@ -9874,15 +10308,17 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
     // [FECH v1] restaura snapshot de cotações de fechamento (limpa se ausente)
     saveCotacoesFechamento(dados.cotacoesFechamento || {});
 
-    // [RENT v5] histórico de rentabilidade mensal.
-    // Limpa o histórico deste usuário e força recálculo completo no próximo boot
-    // (garante que os preços recém-importados sejam usados desde o início).
-    db.historicoRentabilidade = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId !== usuarioId; });
+    // [RENT v5] histórico de rentabilidade mensal — limpa desta carteira e recalcula
+    db.historicoRentabilidade = (db.historicoRentabilidade || []).filter(function (h) {
+        if (h.usuarioId !== usuarioId) return true;
+        if (cIdImp) return h.carteiraId !== cIdImp;
+        return false;
+    });
     db.historicoRentabilidadeVersao = 5; // força migração v6 no próximo boot
     if (dados.historicoRentabilidade) {
         dados.historicoRentabilidade.forEach(function (h) {
             if (h.rentabilidade === null || h.rentabilidade === undefined) return;
-            db.historicoRentabilidade.push({
+            var entrada = {
                 mes: h.mes,
                 usuarioId: usuarioId,
                 rentabilidade: Number(h.rentabilidade),
@@ -9892,7 +10328,9 @@ function aplicarImportacao(usuarioId, dados, guardarAnterior) {
                 patrimonioFim: h.patrimonioFim != null ? Number(h.patrimonioFim) : undefined,
                 aportesLiquidos: h.aportesLiquidos != null ? Number(h.aportesLiquidos) : undefined,
                 proventos: h.proventos != null ? Number(h.proventos) : undefined,
-            });
+            };
+            if (cIdImp) entrada.carteiraId = cIdImp;
+            db.historicoRentabilidade.push(entrada);
         });
     }
 
@@ -10118,7 +10556,10 @@ document.addEventListener('change', function (event) {
 
 function calcularAnalise(usuarioId) {
     var db = loadDB();
-    var hist = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === usuarioId && !h.primeiroMes; });
+    var cIdAnal = carteiraIdAtual();
+    var hist = (db.historicoRentabilidade || []).filter(function (h) {
+        return h.usuarioId === usuarioId && (!cIdAnal || h.carteiraId === cIdAnal) && !h.primeiroMes;
+    });
     hist.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
 
     var mtd = _mtdCache && _mtdCache.usuarioId === usuarioId ? _mtdCache : null;
@@ -10246,6 +10687,7 @@ function calcularAnalise(usuarioId) {
     var mesesComProvento = {};
     db2.transacoes.forEach(function (t) {
         if (t.usuarioId !== usuarioId) return;
+        if (cIdAnal && t.carteiraId !== cIdAnal) return;
         if (t.tipo !== 'PROVENTO' && t.tipo !== 'RENDIMENTO_RF') return;
         var val = Number(t.valor) || 0;
         totalProv += val;
@@ -10287,9 +10729,10 @@ function renderAnalise(user) {
     // ── Estado: intro ─────────────────────────────────────────────
     if (!_analiseRodou && !_analiseCarregando) {
         var db = loadDB();
-        var nMeses = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === user.id && !h.primeiroMes; }).length;
+        var cIdAR = carteiraIdAtual();
+        var nMeses = (db.historicoRentabilidade || []).filter(function (h) { return h.usuarioId === user.id && (!cIdAR || h.carteiraId === cIdAR) && !h.primeiroMes; }).length;
         var nAtivos = (db.ativos || []).length;
-        var nTrans  = (db.transacoes || []).filter(function (t) { return t.usuarioId === user.id; }).length;
+        var nTrans  = (db.transacoes || []).filter(function (t) { return t.usuarioId === user.id && (!cIdAR || t.carteiraId === cIdAR); }).length;
         return topbarHTML('/analise') +
             '<main class="analise-page">' +
             '<div class="analise-intro">' +
@@ -10597,6 +11040,18 @@ function renderAnalise(user) {
 carregarArmazenamento().then(function () {
     aplicarTema();
     mostrarAvisoArmazenamento();
+    migrarParaMultiCarteira(); // [MULTI v1] one-shot: cria "Principal" + taggeia dados existentes
+    // [MULTI v1] se há sessão sem carteiraId (login de antes da migração), corrige agora
+    (function () {
+        var sess = getSession();
+        if (sess && sess.userId && !sess.carteiraId) {
+            var dbSessao = loadDB();
+            var c = (dbSessao.carteiras || [])
+                .filter(function (x) { return x.usuarioId === sess.userId; })
+                .sort(function (a, b) { return a.criadoEm - b.criadoEm; })[0];
+            if (c) setSession(sess.userId, c.id);
+        }
+    }());
     renderCurrentRoute();
 });
 
