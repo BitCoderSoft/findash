@@ -10657,19 +10657,23 @@ function calcularAnalise(usuarioId) {
         });
     }
 
-    // ── saúde: posições muito negativas + quantidade residual ─────
+    // ── saúde: posições muito negativas + quantidade residual + sem cotação + diversificação ─────
     var alertasSaude = [];
     posicoes.forEach(function (p) {
         if (p.precoAtual && p.precoMedio) {
             var rentPct = (p.precoAtual - p.precoMedio) / p.precoMedio * 100;
             if (rentPct < -20) alertasSaude.push({ tipo: 'negativa', ticker: p.ativo.ticker, rentPct: rentPct });
         }
-        // quantidade residual: só para BOLSA (Ação/FII/BDR), onde qtd deveria ser inteiro
-        // Cripto tem frações minúsculas por natureza — não é resíduo
+        // quantidade residual: só para BOLSA (Ação/FII/BDR/ETF), onde qtd deveria ser inteiro
         if (p.quantidade > 0 && p.quantidade < 0.01 && p.ativo.classe !== 'CRIPTO' && p.ativo.classe !== 'RENDA_FIXA') {
             alertasSaude.push({ tipo: 'residual', ticker: p.ativo.ticker, quantidade: p.quantidade });
         }
     });
+    // diversificação insuficiente: menos de 3 ativos com posição aberta (RV)
+    var nAtivosRV = posicoes.filter(function (p) { return p.quantidade > 0; }).length;
+    if (nAtivosRV > 0 && nAtivosRV < 3) {
+        alertasSaude.push({ tipo: 'diversificacao', nAtivos: nAtivosRV });
+    }
 
     // ── proventos ─────────────────────────────────────────────────
     var db2 = loadDB();
@@ -10720,7 +10724,7 @@ function calcularAnalise(usuarioId) {
         consistencia: { mesesAcimaCDI: mesesAcimaCDI, mesesAbaixoCDI: mesesAbaixoCDI, melhorMes: melhorMes, piorMes: piorMes, maxSequNeg: maxSequNeg },
         concentracao: { alertas: alertasConc, patrimonioTotal: patrimonioTotal },
         saude: { alertas: alertasSaude },
-        proventos: { totalProv: totalProv, total12m: total12m, porClasse12m: porClasse12m, yocGeral: yocGeral, yoc12m: yoc12m, mesesSemProvento: mesesSemProvento, totalMeses12m: mesesHistorico.length },
+        proventos: { totalProv: totalProv, total12m: total12m, totalProvRV: totalProvRV, total12mRV: total12mRV, porClasse12m: porClasse12m, yocGeral: yocGeral, yoc12m: yoc12m, mesesSemProvento: mesesSemProvento, totalMeses12m: mesesHistorico.length },
         totalMeses: hist.length,
     };
 }
@@ -10921,18 +10925,25 @@ function renderAnalise(user) {
         concHTML += '</ul>';
     }
 
-    // ── Seção 4: Proventos ────────────────────────────────────────
+    // ── Seção 4: Renda Passiva ────────────────────────────────────
     var prov = dados.proventos;
     var provHTML = '';
     if (!prov.totalProv) {
         provHTML = '<p class="analise-vazio">Nenhum provento ou rendimento registrado ainda.</p>';
     } else {
         var fmtR = function (v) { return 'R$ ' + v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.'); };
+        var totalProvRF = prov.totalProv - (prov.totalProvRV || 0);
+        var total12mRF  = prov.total12m  - (prov.total12mRV  || 0);
+
         // cards de resumo
         provHTML = '<div class="analise-grid">';
         provHTML += '<div class="analise-card"><div class="analise-card-titulo">Total recebido</div>' +
             '<div class="analise-card-valor">' + fmtR(prov.totalProv) + '</div>' +
-            '<div class="analise-card-detalhe">proventos + rendimentos de RF</div></div>';
+            '<div class="analise-card-detalhe">' +
+            (prov.totalProvRV > 0 && totalProvRF > 0
+                ? 'dividendos ' + fmtR(prov.totalProvRV) + ' · RF ' + fmtR(totalProvRF)
+                : prov.totalProvRV > 0 ? 'dividendos de ações e FIIs' : 'rendimentos de renda fixa') +
+            '</div></div>';
 
         if (prov.total12m > 0) {
             provHTML += '<div class="analise-card"><div class="analise-card-titulo">Últimos 12 meses</div>' +
@@ -10940,37 +10951,60 @@ function renderAnalise(user) {
                 '<div class="analise-card-detalhe">≈ ' + fmtR(prov.total12m / 12) + '/mês</div></div>';
         }
 
+        // split RV vs RF nos últimos 12m, quando há as duas fontes
+        if (prov.total12mRV > 0 && total12mRF > 0) {
+            provHTML += '<div class="analise-card"><div class="analise-card-titulo">Dividendos RV (12m)</div>' +
+                '<div class="analise-card-valor" style="color:var(--color-success)">' + fmtR(prov.total12mRV) + '</div>' +
+                '<div class="analise-card-detalhe">ações, FIIs e ETFs</div></div>';
+            provHTML += '<div class="analise-card"><div class="analise-card-titulo">Rendimentos RF (12m)</div>' +
+                '<div class="analise-card-valor" style="color:var(--color-success)">' + fmtR(total12mRF) + '</div>' +
+                '<div class="analise-card-detalhe">renda fixa e produtos RF</div></div>';
+        }
+
+        // projeção anual baseada nos últimos 12 meses
+        if (prov.total12m > 0 && prov.totalMeses12m > 0 && prov.totalMeses12m < 12) {
+            var projecao = prov.total12m / prov.totalMeses12m * 12;
+            provHTML += '<div class="analise-card"><div class="analise-card-titulo">Projeção anual</div>' +
+                '<div class="analise-card-valor">' + fmtR(projecao) + '</div>' +
+                '<div class="analise-card-detalhe">baseada nos últimos ' + prov.totalMeses12m + ' meses (extrapolado)</div></div>';
+        } else if (prov.total12m > 0 && prov.totalMeses12m >= 12) {
+            provHTML += '<div class="analise-card"><div class="analise-card-titulo">Renda passiva anual</div>' +
+                '<div class="analise-card-valor">' + fmtR(prov.total12m) + '</div>' +
+                '<div class="analise-card-detalhe">soma dos últimos 12 meses completos</div></div>';
+        }
+
         if (prov.yocGeral != null) {
             provHTML += '<div class="analise-card"><div class="analise-card-titulo">YoC acumulado</div>' +
                 '<div class="analise-card-valor" style="color:var(--color-success)">' + prov.yocGeral.toFixed(2).replace('.', ',') + '%</div>' +
-                '<div class="analise-card-detalhe">sobre custo em Ação + FII</div></div>';
+                '<div class="analise-card-detalhe">sobre custo em Ação + FII + ETF</div></div>';
         }
 
         if (prov.yoc12m != null) {
             provHTML += '<div class="analise-card"><div class="analise-card-titulo">YoC últimos 12 meses</div>' +
                 '<div class="analise-card-valor" style="color:var(--color-success)">' + prov.yoc12m.toFixed(2).replace('.', ',') + '%</div>' +
-                '<div class="analise-card-detalhe">sobre custo em Ação + FII</div></div>';
+                '<div class="analise-card-detalhe">sobre custo em Ação + FII + ETF</div></div>';
         }
 
         if (prov.totalMeses12m > 0) {
             var corConsis = prov.mesesSemProvento === 0 ? 'var(--color-success)' : (prov.mesesSemProvento <= 2 ? 'var(--color-text)' : 'var(--color-danger)');
-            provHTML += '<div class="analise-card"><div class="analise-card-titulo">Meses sem provento</div>' +
+            provHTML += '<div class="analise-card"><div class="analise-card-titulo">Meses sem renda passiva</div>' +
                 '<div class="analise-card-valor" style="color:' + corConsis + '">' + prov.mesesSemProvento + '</div>' +
                 '<div class="analise-card-detalhe">nos últimos ' + prov.totalMeses12m + ' meses fechados</div></div>';
         }
 
         provHTML += '</div>';
 
-        // YoC por classe nos últimos 12 meses
+        // Por classe nos últimos 12 meses
         if (Object.keys(prov.porClasse12m).length > 1) {
             provHTML += '<h3 style="font-size:var(--text-sm);font-weight:600;color:var(--color-text);margin:20px 0 8px">Por classe (últimos 12 meses)</h3>';
             provHTML += '<div class="analise-aloc-grid">';
             Object.keys(prov.porClasse12m).sort().forEach(function (cl) {
                 var val = prov.porClasse12m[cl];
+                var pctTotal = prov.total12m > 0 ? (val / prov.total12m * 100).toFixed(0) + '%' : '';
                 provHTML += '<div class="analise-aloc-card">' +
                     '<div class="analise-aloc-nome"><span class="analise-aloc-dot" style="background:' + (CORES_CLASSE[cl] || '#999') + '"></span>' + escapeHtml(CLASSES[cl] || cl) + '</div>' +
                     '<div style="font-size:var(--text-sm);font-weight:700;color:var(--color-success);margin-top:4px">' + fmtR(val) + '</div>' +
-                    '<div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-top:2px">≈ ' + fmtR(val / 12) + '/mês</div>' +
+                    '<div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-top:2px">≈ ' + fmtR(val / 12) + '/mês' + (pctTotal ? ' · ' + pctTotal + ' do total' : '') + '</div>' +
                     '</div>';
             });
             provHTML += '</div>';
@@ -10979,27 +11013,43 @@ function renderAnalise(user) {
 
     // ── Seção 5: Saúde ────────────────────────────────────────────
     var saudeHTML = '';
-    var alertasNeg      = dados.saude.alertas.filter(function (a) { return a.tipo === 'negativa'; });
-    var alertasResidual = dados.saude.alertas.filter(function (a) { return a.tipo === 'residual'; });
+    var alertasNeg        = dados.saude.alertas.filter(function (a) { return a.tipo === 'negativa'; });
+    var alertasResidual   = dados.saude.alertas.filter(function (a) { return a.tipo === 'residual'; });
+    var alertasDiversif   = dados.saude.alertas.filter(function (a) { return a.tipo === 'diversificacao'; });
+
+    // bloco explicativo da régua — sempre visível
+    saudeHTML += '<div style="background:var(--color-surface-muted);border-radius:var(--radius-xs);padding:12px 14px;margin-bottom:16px;font-size:var(--text-xs);color:var(--color-text-muted);">' +
+        '<div style="font-weight:600;color:var(--color-text);margin-bottom:6px;">Critérios avaliados</div>' +
+        '<ul style="margin:0;padding-left:16px;line-height:1.7;">' +
+        '<li><strong>Posição negativa</strong> — cotação atual abaixo do preço médio de compra em mais de 20%</li>' +
+        '<li><strong>Quantidade residual</strong> — ativo BOLSA/ETF com menos de 0,01 unidade aberta (possível erro de lançamento)</li>' +
+        '<li><strong>Diversificação</strong> — carteira de renda variável com menos de 3 ativos distintos</li>' +
+        '</ul></div>';
 
     if (!dados.saude.alertas.length) {
-        saudeHTML = '<ul class="analise-alerta-lista"><li class="analise-alerta">' +
+        saudeHTML += '<ul class="analise-alerta-lista"><li class="analise-alerta">' +
             '<span class="analise-alerta-icone">✅</span>' +
             '<div class="analise-alerta-corpo"><div class="analise-alerta-titulo">Carteira saudável</div>' +
-            '<div class="analise-alerta-desc">Nenhuma posição com queda acima de 20% do PM nem quantidade residual detectada.</div></div></li></ul>';
+            '<div class="analise-alerta-desc">Nenhuma ocorrência detectada nos critérios acima.</div></div></li></ul>';
     } else {
-        saudeHTML = '<ul class="analise-alerta-lista">';
+        saudeHTML += '<ul class="analise-alerta-lista">';
         alertasNeg.forEach(function (a) {
             saudeHTML += '<li class="analise-alerta">' +
                 '<span class="analise-alerta-icone">🔴</span>' +
                 '<div class="analise-alerta-corpo"><div class="analise-alerta-titulo">' + escapeHtml(a.ticker) + ' — posição negativa</div>' +
-                '<div class="analise-alerta-desc">Cotação atual ' + fmtPct(a.rentPct) + ' em relação ao preço médio de compra.</div></div></li>';
+                '<div class="analise-alerta-desc">Cotação atual ' + fmtPct(a.rentPct) + ' em relação ao preço médio de compra (limite: −20%).</div></div></li>';
         });
         alertasResidual.forEach(function (a) {
             saudeHTML += '<li class="analise-alerta">' +
                 '<span class="analise-alerta-icone">⚠️</span>' +
                 '<div class="analise-alerta-corpo"><div class="analise-alerta-titulo">' + escapeHtml(a.ticker) + ' — quantidade residual</div>' +
-                '<div class="analise-alerta-desc">Posição aberta com ' + a.quantidade.toFixed(6) + ' unidades. Verifique se há lançamento pendente ou erro de registro.</div></div></li>';
+                '<div class="analise-alerta-desc">Posição aberta com ' + a.quantidade.toFixed(6) + ' unidade(s). Verifique se há lançamento pendente ou erro de registro.</div></div></li>';
+        });
+        alertasDiversif.forEach(function (a) {
+            saudeHTML += '<li class="analise-alerta">' +
+                '<span class="analise-alerta-icone">⚠️</span>' +
+                '<div class="analise-alerta-corpo"><div class="analise-alerta-titulo">Diversificação insuficiente</div>' +
+                '<div class="analise-alerta-desc">Carteira com apenas ' + a.nAtivos + ' ativo' + (a.nAtivos > 1 ? 's' : '') + ' de renda variável. Considere ampliar para ao menos 3 ativos distintos.</div></div></li>';
         });
         saudeHTML += '</ul>';
     }
@@ -11009,7 +11059,7 @@ function renderAnalise(user) {
         { id: 'benchmarks',   label: 'Benchmarks'  },
         { id: 'consistencia', label: 'Consistência' },
         { id: 'concentracao', label: 'Concentração' },
-        { id: 'proventos',    label: 'Proventos'    },
+        { id: 'proventos',    label: 'Renda Passiva' },
         { id: 'saude',        label: 'Saúde'        },
     ];
     var tabsHTML = '<div class="analise-tabs">' + abas.map(function (a) {
