@@ -1966,6 +1966,8 @@ a.nav-item:hover { color: var(--color-text); }
 <script src="js/graficos.js"></script>
 <script src="js/market.js"></script>
 <script src="js/engine.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.js"></script>
+<script src="js/supabase.js"></script>
 <script>
 (function () {
 'use strict';
@@ -2285,6 +2287,7 @@ function salvarTransacao(usuarioId, dados, editId) {
             db.transacoes.push(novaRF);
         }
         saveDB(db);
+        if (supLogado()) supUpsertTransacao(editId ? tRF : novaRF); // [SUP v1]
         return;
     }
 
@@ -2330,6 +2333,7 @@ function salvarTransacao(usuarioId, dados, editId) {
         db.transacoes.push(novaT);
     }
     saveDB(db);
+    if (supLogado()) supUpsertTransacao(editId ? t : novaT); // [SUP v1]
 }
 
 // [MOTOR v2 · 28/09/2026] Simula a exclusão antes de excluir. Retorna null
@@ -2350,6 +2354,7 @@ function excluirTransacao(id) {
 
     db.transacoes = db.transacoes.filter(function (t) { return t.id !== id; });
     saveDB(db);
+    if (supLogado()) supDeleteTransacao(id); // [SUP v1]
     return null;
 }
 
@@ -3150,8 +3155,8 @@ function renderLogin(erroLogin) {
         '<h1>Entrar</h1><p class="auth-subtitle">Acesse sua carteira de investimentos.</p>' +
         (erroLogin ? '<div class="errors">' + escapeHtml(erroLogin) + '</div>' : '') +
         '<form id="form-login">' +
-        '<div class="field"><label for="id_username">Usuário</label><input type="text" name="username" id="id_username" required autofocus></div>' +
-        '<div class="field"><label for="id_password">Senha</label><input type="password" name="password" id="id_password" required></div>' +
+        '<div class="field"><label for="id_email">E-mail</label><input type="email" name="email" id="id_email" required autofocus autocomplete="email"></div>' +
+        '<div class="field"><label for="id_password">Senha</label><input type="password" name="password" id="id_password" required autocomplete="current-password"></div>' +
         '<button type="submit" class="button primary">Entrar</button>' +
         '</form>' +
         '<p class="hint">Não tem conta? <a role="link" tabindex="0" data-rota="/register">Criar nova conta</a>.</p>' +
@@ -4828,6 +4833,7 @@ document.addEventListener('click', function (event) {
     // [MOBILE v1] dois botões de sair (topo e menu do celular): usa data-logout
     if (event.target.closest('[data-logout]')) {
         fecharMenuMobile();
+        if (supabaseClient) supabaseClient.auth.signOut(); // [SUP v1]
         clearSession();
         drawerState = null;
         navegar('/login'); // [NAV v1]
@@ -5066,36 +5072,105 @@ document.addEventListener('input', function (event) {
 });
 
 function processarFormulario(form) {
+    // [SUP v1] login e registro agora usam Supabase Auth (async)
     if (form.id === 'form-login') {
         var fd = new FormData(form);
-        var user = autenticar(fd.get('username'), fd.get('password'));
-        if (user) {
-            // [MULTI v1] determina carteira ativa: primeira carteira do usuário
-            var dbLogin = loadDB();
-            var carteiraLogin = (dbLogin.carteiras || [])
-                .filter(function (c) { return c.usuarioId === user.id; })
-                .sort(function (a, b) { return a.criadoEm - b.criadoEm; })[0];
-            setSession(user.id, carteiraLogin ? carteiraLogin.id : null);
-            drawerState = null;
-            navegar('/dashboard'); // [NAV v1]
-        } else {
-            loginError = 'Usuário ou senha inválidos.';
+        var emailLogin = (fd.get('email') || '').trim();
+        var senhaLogin = fd.get('password') || '';
+        if (!supabaseClient) {
+            loginError = 'Sem conexão com o servidor. Tente novamente.';
             renderCurrentRoute();
+            return;
         }
+        supabaseClient.auth.signInWithPassword({ email: emailLogin, password: senhaLogin })
+            .then(function (res) {
+                if (res.error) {
+                    loginError = 'E-mail ou senha inválidos.';
+                    renderCurrentRoute();
+                    return;
+                }
+                // Encontrar ou criar entrada local para manter compatibilidade com IDs inteiros
+                var emailLogado = res.data.user.email;
+                var meta = res.data.user.user_metadata || {};
+                var dbLogin = loadDB();
+                var localUser = dbLogin.users.filter(function (u) { return u.email === emailLogado; })[0];
+                if (!localUser) {
+                    localUser = { id: dbLogin.nextId++, username: meta.username || meta.display_name || emailLogado.split('@')[0], email: emailLogado, criadoEm: Date.now() };
+                    dbLogin.users.push(localUser);
+                    dbLogin.carteiras = dbLogin.carteiras || [];
+                    var c0 = { id: dbLogin.nextId++, usuarioId: localUser.id, nome: 'Principal', criadoEm: Date.now() };
+                    dbLogin.carteiras.push(c0);
+                    saveDB(dbLogin);
+                    setSession(localUser.id, c0.id);
+                } else {
+                    var carteiraLogin = (dbLogin.carteiras || [])
+                        .filter(function (c) { return c.usuarioId === localUser.id; })
+                        .sort(function (a, b) { return a.criadoEm - b.criadoEm; })[0];
+                    setSession(localUser.id, carteiraLogin ? carteiraLogin.id : null);
+                }
+                drawerState = null;
+                navegar('/dashboard'); // [NAV v1]
+                // [SUP v1] dispositivo novo: baixa dados da nuvem em background
+                carregarBancoSupabase(localUser.id).then(function (resultado) {
+                    if (resultado === true) {
+                        showMessage('Carteira carregada da nuvem.', 'success');
+                        renderCurrentRoute();
+                    } else if (resultado === 'MIGRACAO_PENDENTE') {
+                        showMessage('Dados locais não sincronizados. Vá em Backup → Sincronizar agora.', 'error');
+                    }
+                });
+            });
         return;
     }
 
     if (form.id === 'form-register') {
         var fdr = new FormData(form);
-        var resultado = criarUsuario(fdr.get('username'), fdr.get('email'), fdr.get('password1'), fdr.get('password2'));
-        if (resultado.ok) {
-            showMessage('Conta criada com sucesso. Faça login.', 'success');
-            navegar('/login'); // [NAV v1]
-        } else {
-            registerErrors = resultado.erros;
-            registerValues = { username: fdr.get('username'), email: fdr.get('email') };
+        var usernameReg = (fdr.get('username') || '').trim();
+        var emailReg    = (fdr.get('email')    || '').trim();
+        var senha1Reg   = fdr.get('password1') || '';
+        var senha2Reg   = fdr.get('password2') || '';
+        var errosReg = {};
+        if (!usernameReg)  errosReg.username  = 'Este campo é obrigatório.';
+        if (!emailReg)     errosReg.email     = 'Este campo é obrigatório.';
+        if (!senha1Reg)    errosReg.password1 = 'Este campo é obrigatório.';
+        else if (senha1Reg.length < 8)    errosReg.password1 = 'A senha precisa ter pelo menos 8 caracteres.';
+        else if (/^\d+$/.test(senha1Reg)) errosReg.password1 = 'Esta senha é inteiramente numérica.';
+        if (senha1Reg && senha2Reg && senha1Reg !== senha2Reg) errosReg.password2 = 'Os dois campos de senha não correspondem.';
+        if (Object.keys(errosReg).length) {
+            registerErrors = errosReg;
+            registerValues = { username: usernameReg, email: emailReg };
             renderCurrentRoute();
+            return;
         }
+        if (!supabaseClient) {
+            registerErrors = { email: 'Sem conexão com o servidor. Tente novamente.' };
+            renderCurrentRoute();
+            return;
+        }
+        supabaseClient.auth.signUp({
+            email: emailReg,
+            password: senha1Reg,
+            options: { data: { username: usernameReg, display_name: usernameReg } }
+        }).then(function (res) {
+            if (res.error) {
+                registerErrors = { email: res.error.message };
+                registerValues = { username: usernameReg, email: emailReg };
+                renderCurrentRoute();
+                return;
+            }
+            // Criar entrada local + carteira Principal
+            var dbReg = loadDB();
+            var localUserReg = { id: dbReg.nextId++, username: usernameReg, email: emailReg, criadoEm: Date.now() };
+            dbReg.users.push(localUserReg);
+            dbReg.carteiras = dbReg.carteiras || [];
+            var carteiraReg = { id: dbReg.nextId++, usuarioId: localUserReg.id, nome: 'Principal', criadoEm: Date.now() };
+            dbReg.carteiras.push(carteiraReg);
+            saveDB(dbReg);
+            setSession(localUserReg.id, carteiraReg.id);
+            drawerState = null;
+            showMessage('Conta criada com sucesso!', 'success');
+            navegar('/dashboard'); // [NAV v1]
+        });
         return;
     }
 
@@ -5193,6 +5268,7 @@ function salvarBalanceamento(usuarioId, alteracao) {
     if (alteracao.notas) Object.keys(alteracao.notas).forEach(function (k) { atual.notas[k] = alteracao.notas[k]; });
     db.balanceamentos[chave] = atual;
     saveDB(db);
+    if (supLogado()) supUpsertBalanceamento(chave, atual); // [SUP v1]
 }
 
 // [BAL v2] remove entradas de `notas` cujos ativos não têm mais posição aberta
@@ -5214,6 +5290,7 @@ function limparNotasOrfas(usuarioId) {
     atual.notas = novasNotas;
     db.balanceamentos[chave] = atual;
     saveDB(db);
+    if (supLogado()) supUpsertBalanceamento(chave, atual); // [SUP v1]
 }
 
 // Monta tudo que a tela e o simulador precisam, a partir das posições já
@@ -5808,6 +5885,12 @@ function registrarConclusoes(avaliacoes) {
         }
     });
     saveDB(db);
+    if (supLogado()) { // [SUP v1]
+        novos.forEach(function (a) {
+            var o2 = (db.objetivos || []).filter(function (x) { return x.id === a.objetivo.id; })[0];
+            if (o2) supUpsertObjetivo(o2);
+        });
+    }
 }
 
 // --- validação e gravação (chamado pelo processarFormulario) ---
@@ -5850,6 +5933,7 @@ function salvarObjetivo(usuarioId, dados, editId) {
         db.objetivos.push(novoObj);
     }
     saveDB(db);
+    if (supLogado()) supUpsertObjetivo(editId ? o : novoObj); // [SUP v1]
 }
 
 // --- tela ---
@@ -6047,6 +6131,7 @@ document.addEventListener('click', function (event) {
         var db = loadDB();
         db.objetivos = (db.objetivos || []).filter(function (x) { return !(x.id === idEx && x.usuarioId === user.id); });
         saveDB(db);
+        if (supLogado()) supDeleteObjetivo(idEx); // [SUP v1]
         showMessage('Objetivo excluído.', 'success');
         renderCurrentRoute();
         return;
@@ -6748,6 +6833,18 @@ function renderBackup(user) {
             : '') +
         '</section>';
 
+    // --- nuvem [SUP v1]
+    var nuvemHTML = supabaseClient
+        ? '<section class="backup-card">' +
+          '<h2>Sincronização na nuvem</h2>' +
+          (supLogado()
+              ? '<p class="backup-texto">Conectado como <strong>' + escapeHtml((_usuarioSupabase && _usuarioSupabase.email) || '') + '</strong>. ' +
+                'Os dados são sincronizados automaticamente ao importar. Use abaixo para forçar uma sincronização completa.</p>' +
+                '<div class="backup-acoes"><button type="button" class="button primary" data-acao="sincronizar-nuvem">Sincronizar agora</button></div>'
+              : '<p class="backup-texto">Não conectado ao servidor. Faça login para habilitar a sincronização na nuvem.</p>') +
+          '</section>'
+        : '';
+
     // --- verificar
     var problemas = auditarCarteira(user.id);
     var verificarHTML = '<section class="backup-card">' +
@@ -6764,6 +6861,7 @@ function renderBackup(user) {
         '' +
         '<div class="backup-grid">' + exportarHTML + importarHTML + '</div>' +
         verificarHTML +
+        nuvemHTML +
         '</main>' + rodapeHTML() + '</div>' +
         drawerTransacaoHTML(drawerState);
 }
@@ -6825,14 +6923,34 @@ document.addEventListener('click', function (event) {
         if (!confirm('Substituir todos os seus lançamentos atuais pelos do backup?')) return;
         aplicarImportacao(user.id, pv.dados, true);
         backupState.previa = null;
-        showMessage('Backup importado: ' + pv.resumo.transacoes + ' lançamento(s).', 'success');
-        renderCurrentRoute();
+        if (supLogado()) { // [SUP v1] sincroniza com a nuvem após importação
+            showMessage('Backup importado. Sincronizando com a nuvem…', 'success');
+            migrarLocalParaSupabase(user.id).then(function (ok) {
+                showMessage(
+                    ok  ? 'Dados sincronizados: ' + pv.resumo.transacoes + ' lançamento(s) na nuvem.'
+                        : 'Importação salva localmente. Falha na sincronização — use "Sincronizar agora" em Backup.',
+                    ok ? 'success' : 'error'
+                );
+                renderCurrentRoute();
+            });
+        } else {
+            showMessage('Backup importado: ' + pv.resumo.transacoes + ' lançamento(s).', 'success');
+            renderCurrentRoute();
+        }
         return;
     }
     if (acao === 'importar-desfazer') {
         if (!confirm('Voltar os lançamentos para como estavam antes da última importação?')) return;
         showMessage(desfazerImportacao(user.id) ? 'Importação desfeita.' : 'Não encontrei a cópia anterior.', 'success');
         renderCurrentRoute();
+        return;
+    }
+    if (acao === 'sincronizar-nuvem') { // [SUP v1]
+        if (!supLogado()) { showMessage('Sem conexão com o servidor.', 'error'); return; }
+        showMessage('Sincronizando…', 'success');
+        migrarLocalParaSupabase(user.id).then(function (ok) {
+            showMessage(ok ? 'Sincronização concluída.' : 'Falha na sincronização. Tente novamente.', ok ? 'success' : 'error');
+        });
         return;
     }
 });
@@ -7385,6 +7503,7 @@ function renderAnalise(user) {
 // [STORE v1] espera o banco chegar do window.storage (só no preview) antes
 // de desenhar a primeira tela; fora do preview resolve na hora
 carregarArmazenamento().then(function () {
+    iniciarSupabase(); // [SUP v1] inicializa client Supabase + _bootAuthPronto
     aplicarTema();
     mostrarAvisoArmazenamento();
     migrarParaMultiCarteira(); // [MULTI v1] one-shot: cria "Principal" + taggeia dados existentes

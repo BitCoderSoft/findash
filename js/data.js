@@ -60,6 +60,7 @@ function criarCarteira(usuarioId, nome) {
     var carteira = { id: db.nextId++, usuarioId: usuarioId, nome: nome || 'Nova carteira', criadoEm: Date.now() };
     db.carteiras.push(carteira);
     saveDB(db);
+    if (typeof supLogado === 'function' && supLogado()) supUpsertCarteira(carteira); // [SUP v1]
     return carteira;
 }
 
@@ -71,6 +72,7 @@ function renomearCarteira(carteiraId, novoNome) {
     if (!c) return { ok: false, erro: 'Carteira não encontrada.' };
     c.nome = novoNome.trim();
     saveDB(db);
+    if (typeof supLogado === 'function' && supLogado()) supUpsertCarteira(c); // [SUP v1]
     return { ok: true };
 }
 

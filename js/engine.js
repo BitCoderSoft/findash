@@ -447,6 +447,7 @@ function fecharMesAnteriorSeNecessario(usuarioId) {
                         if (cIdFech) entradaHist.carteiraId = cIdFech;
                         dbSave.historicoRentabilidade.push(entradaHist);
                         saveDB(dbSave);
+                        if (typeof supLogado === 'function' && supLogado()) supUpsertHistorico(entradaHist); // [SUP v1]
 
                         // [FECH v1] snapshot das cotações usadas neste fechamento
                         var fechamentos = loadCotacoesFechamento();
