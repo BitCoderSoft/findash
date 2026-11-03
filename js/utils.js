@@ -87,6 +87,14 @@ function formatarQuantidadeLivre(valor) {
     return formatQuantidade(valor, null);
 }
 
+// Retorna a data de hoje no formato 'YYYY-MM-DD' (sem deslocar por fuso).
+function hojeISO() {
+    var d = new Date();
+    return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+}
+
 function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];

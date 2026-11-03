@@ -741,6 +741,13 @@ function evolucaoMensal(usuarioId) {
     return resultado;
 }
 
+// Busca o ativo pelo ticker (case-sensitive, já normalizado em maiúsculas).
+// Usada por market.js — precisa ser global (data.js carrega antes de market.js).
+function buscarAtivoPorTicker(ticker) {
+    if (!ticker) return null;
+    var db = loadDB();
+    return db.ativos.filter(function (a) { return a.ticker === ticker; })[0] || null;
+}
 // [FLUXO v1] Fluxo mensal de aportes e retiradas: compras vs vendas por mês.
 // Compras: COMPRA (qty×preço+taxas) + APORTE RF (t.valor)
 // Vendas:  VENDA (qty×preço) + RESGATE RF (t.valor)
@@ -811,3 +818,4 @@ function fluxoMensalAportes(usuarioId) {
     }
     return resultado;
 }
+

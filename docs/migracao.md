@@ -108,9 +108,35 @@ interagir com a página.
   `dadosChartJsProventos()`, `_chartQueue`, `htmlChartJs()`,
   `dadosChartJsRentabAcumulada()`, `inicializarCharts()`,
   `montarGraficoAlocacao()`, `graficoHistoricoState`, `montarGraficoHistoricoHTML()`,
-  `wireGraficoHistorico()`
+  `wireGraficoHistorico()`, `dadosChartJsFluxo()`
 - **Dependências:** `CONSTANTES`, `utils.js`
 - **Problemas:** ver bug `_mesAnterior` acima
+
+#### Bloco 5 — `js/market.js`
+- **Commit:** (pendente validação)
+- **Conteúdo:** todo market data — brapi.dev (B3): `brapiFetch`, `buscarCotacoesBrapi`,
+  `buscarHistorico`, `buscarRanking`, `buscarRankingsResumo`; Binance (cripto):
+  `binanceGet`, `resolverParesCripto`, `escolherCotacaoCripto`, `buscarCotacoesCripto`,
+  `buscarHistoricoCripto`, `buscarPrecosMensaisCripto`, `buscarPrecoConversaoNaData`;
+  unificado: `buscarCotacoes`, `buscarHistoricoDoAtivo`, `buscarPrecosMensais`;
+  histórico mensal: `loadIBOVHist/saveIBOVHist`, `loadIfixHist/saveIfixHist`,
+  `loadStockHist/saveStockHist`, `loadCotacoesFechamento/saveCotacoesFechamento`,
+  `loadUsdBrlHist/saveUsdBrlHist`, `gerarChunks`, `_agregarMensalDescendente`,
+  `_fetchChunksB3`, `buscarPrecosMensaisB3`, `buscarPrecosMensaisIBOV`,
+  `buscarPrecosMensaisIFIX`, `buscarUsdBrlMensal`; CDI: `buscarCDI`, `buscarCDIMesFechado`;
+  bolsai: `tipoIndicador`, `buscarIndicadores`, `painelIndicadoresHTML` (e helpers);
+  caches de sessão: `_ibovMapaCache`, `_ifixMapaCache`
+- **Dependências:** `CONSTANTES`, `ARMAZEM`, `utils.js` (`hojeISO`, `_mesAnterior`, `fmt*`),
+  `data.js` (`buscarAtivoPorTicker`, `loadDB`)
+- **Decisões de design:**
+  - `hojeISO` movida para `utils.js` (market.js precisa dela como global)
+  - `buscarAtivoPorTicker` movida para `data.js` (market.js precisa dela como global)
+  - `_ibovMapaCache`/`_ifixMapaCache` declaradas em `market.js` como globals —
+    removidas do IIFE para que o IIFE leia os valores reais escritos pelas funções
+    do market (se ficassem como `var` no IIFE seriam variáveis locais never-updated)
+  - `atualizarCotacaoConversao` **não** extraída — acessa o DOM do formulário
+    diretamente, pertence ao IIFE
+- **Problemas:** nenhum na extração
 
 ---
 
@@ -118,8 +144,7 @@ interagir com a página.
 
 | Próximo bloco | Conteúdo principal | Dependências esperadas |
 |---|---|---|
-| Bloco 5 — `js/market.js` | `brapiFetch()`, `buscarCotacoesB3()`, `buscarPrecosMensaisB3()`, `buscarCotacaoBinance()`, `buscarPrecosMensaisCripto()`, `buscarPrecosMensaisIBOV()`, `buscarPrecosMensaisIFIX()`, `buscarRankings()`, `buscarCDI()` | CONSTANTES, ARMAZEM, utils |
-| Bloco 6 — `js/engine.js` (TBD) | `fecharMesAnteriorSeNecessario()`, `obterMTD()`, `aportesLiquidosNoMes()`, `proventosNoMes()` | CONSTANTES, ARMAZEM, data, market |
+| Bloco 6 — `js/engine.js` (TBD) | `fecharMesAnteriorSeNecessario()`, `obterMTD()`, `aportesLiquidosNoMes()`, `proventosNoMes()`, `patrimonioNaData()` | CONSTANTES, ARMAZEM, data, market |
 | Bloco 7+ | ROTEAMENTO, COMPONENTES UI, PÁGINAS, BOOTSTRAP | tudo |
 
 > Cada extração deve ser validada no navegador antes de commitar.
