@@ -113,7 +113,7 @@ interagir com a página.
 - **Problemas:** ver bug `_mesAnterior` acima
 
 #### Bloco 5 — `js/market.js`
-- **Commit:** (pendente validação)
+- **Commit:** `a0b0119`
 - **Conteúdo:** todo market data — brapi.dev (B3): `brapiFetch`, `buscarCotacoesBrapi`,
   `buscarHistorico`, `buscarRanking`, `buscarRankingsResumo`; Binance (cripto):
   `binanceGet`, `resolverParesCripto`, `escolherCotacaoCripto`, `buscarCotacoesCripto`,
@@ -138,13 +138,36 @@ interagir com a página.
     diretamente, pertence ao IIFE
 - **Problemas:** nenhum na extração
 
+#### Bloco 6 — `js/engine.js`
+- **Commit:** (pendente validação)
+- **Conteúdo:** engine de rentabilidade mensal (Modified Dietz):
+  `_ultimoDiaDoMes`, `patrimonioNaData`, `proventosNoMes`, `aportesLiquidosNoMes`,
+  `rentabilidadeCarteiraMes`, `_mtdCache` (global), `_anoMesAtual`,
+  `patrimonioMercadoAtual`, `obterMTD`, `fecharMesAnteriorSeNecessario`,
+  `completarCotacoesFechamentoCripto`, `completarUsdBrlFechamento`,
+  `popularCotacoesFechamentoRetroativo`
+- **Dependências:** `CONSTANTES` (`QTD_EPSILON`, `CDI_CACHE_KEY`),
+  `ARMAZEM` (`armazem.get`), `data.js` (`loadDB`, `saveDB`, `ativosPorIdDe`,
+  `carteiraIdAtual`, `processarCarteira`, `ordenarTransacoes`),
+  `market.js` (`loadStockHist`, `buscarPrecosMensais`, `buscarPrecosMensaisIBOV`,
+  `buscarPrecosMensaisIFIX`, `buscarUsdBrlMensal`, `buscarCDIMesFechado`,
+  `loadCotacoesFechamento`, `saveCotacoesFechamento`, `buscarPrecosMensaisCripto`,
+  `loadIBOVHist`, `loadIfixHist`, `loadUsdBrlHist`)
+- **Decisões de design:**
+  - `_mtdCache` declarado como global em engine.js (escrito por `obterMTD`,
+    lido via chamada a `obterMTD` no IIFE)
+  - `atualizarHeatmapDOM`, `heatmapCelulasHTML`, `secaoRentabilidadeHTML`
+    **não** extraídas — geram HTML / tocam o DOM, pertencem ao IIFE
+  - `patrimonioMercadoAtual` usa `new Date().toISOString().slice(0,10)` diretamente
+    como variável local `hojeISO` (não chama a função global do mesmo nome)
+- **Problemas:** nenhum na extração
+
 ---
 
 ### Etapas de extração pendentes
 
 | Próximo bloco | Conteúdo principal | Dependências esperadas |
 |---|---|---|
-| Bloco 6 — `js/engine.js` (TBD) | `fecharMesAnteriorSeNecessario()`, `obterMTD()`, `aportesLiquidosNoMes()`, `proventosNoMes()`, `patrimonioNaData()` | CONSTANTES, ARMAZEM, data, market |
 | Bloco 7+ | ROTEAMENTO, COMPONENTES UI, PÁGINAS, BOOTSTRAP | tudo |
 
 > Cada extração deve ser validada no navegador antes de commitar.

@@ -47,7 +47,7 @@ máquina, mas não há servidor nem deploy público.
 ## Arquivos principais
 
 ```
-index.html          ← FONTE DA VERDADE. ~8 000 linhas (HTML + CSS + IIFE JS).
+index.html          ← FONTE DA VERDADE. ~7 400 linhas (HTML + CSS + IIFE JS).
                       Abrir direto no navegador, sem servidor.
 js/constantes.js    ← extraído (Bloco 1): tokens, chaves, TTLs, classes, cores
 js/armazem.js       ← extraído (Bloco 2): camada armazem (localStorage / memória)
@@ -55,6 +55,7 @@ js/data.js          ← extraído (Bloco 3): CRUD + motor de carteira + KPIs
 js/utils.js         ← extraído (Bloco U): formatação, datas, escapeHtml
 js/graficos.js      ← extraído (Bloco 4): Chart.js + SVG de evolução/alocação
 js/market.js        ← extraído (Bloco 5): market data (brapi, Binance, BCB, bolsai)
+js/engine.js        ← extraído (Bloco 6): engine de rentabilidade (Modified Dietz, fechamento mensal, MTD)
 ```
 
 O restante da estrutura de diretórios (`investments/`, `dash_finance/`,
@@ -70,6 +71,7 @@ ignorado ou removido; não é mais mantido.
 <script src="js/utils.js"></script>         <!-- usa: CONSTANTES (CLASSES_INTEIRAS) -->
 <script src="js/graficos.js"></script>      <!-- usa: CONSTANTES, utils -->
 <script src="js/market.js"></script>        <!-- usa: CONSTANTES, ARMAZEM, utils, data -->
+<script src="js/engine.js"></script>        <!-- usa: CONSTANTES, ARMAZEM, data, utils, market -->
 <script>                                    <!-- IIFE: usa tudo acima -->
 (function () { 'use strict';
   /* ROTEAMENTO, COMPONENTES UI, PÁGINAS, BOOTSTRAP */
@@ -91,7 +93,7 @@ O arquivo segue esta ordem:
 2. **`<style>`** — design system completo (~1 600 linhas de CSS).
 3. **`<body>`** — contém apenas `<div id="app"></div>` + uma faixa de aviso de
    armazenamento. Todo o HTML das páginas é gerado por JS.
-4. **`<script src="js/...">` tags** — 6 arquivos externos (ver acima).
+4. **`<script src="js/...">` tags** — 7 arquivos externos (ver acima).
 5. **`<script>` (IIFE)** — JavaScript restante, organizado em blocos marcados
    com comentários `/* ===...=== */`.
 
@@ -105,6 +107,7 @@ O arquivo segue esta ordem:
 | UTILITÁRIOS | `js/utils.js` | ✅ extraído |
 | GRÁFICOS | `js/graficos.js` | ✅ extraído |
 | MARKET DATA (brapi, Binance, BCB, bolsai) | `js/market.js` | ✅ extraído |
+| ENGINE DE RENTABILIDADE (Modified Dietz, fechamento, MTD) | `js/engine.js` | ✅ extraído |
 | ROTEAMENTO | `index.html` IIFE | pendente |
 | COMPONENTES UI | `index.html` IIFE | pendente |
 | PÁGINAS | `index.html` IIFE | pendente |
@@ -634,7 +637,8 @@ Princípios — manter consistência em telas novas:
 42. ✅ Refatoração JS modular (`feat-refatoracao`) — extração progressiva do JS inline em
       arquivos `js/` independentes (scripts clássicos, sem ES modules). Blocos extraídos:
       `js/constantes.js` (Bloco 1), `js/armazem.js` (Bloco 2), `js/data.js` (Bloco 3),
-      `js/utils.js` (Bloco U), `js/graficos.js` (Bloco 4), `js/market.js` (Bloco 5).
+      `js/utils.js` (Bloco U), `js/graficos.js` (Bloco 4), `js/market.js` (Bloco 5),
+      `js/engine.js` (Bloco 6).
       Ver `docs/migracao.md` para histórico completo e decisões de design.
 43. ✅ Corrige lucro fantasma no gráfico de barras "Evolução do patrimônio":
       (a) `evolucaoMensal` limitada dedução do RESGATE RF ao APORTE acumulado —
@@ -658,6 +662,14 @@ Princípios — manter consistência em telas novas:
       market.js. `_ibovMapaCache`/`_ifixMapaCache` removidas do IIFE — agora são globals
       em `market.js` (o IIFE lia os valores null locais em vez dos reais). `atualizarCotacaoConversao`
       mantida no IIFE (acessa DOM). `index.html` caiu de ~9 600 para ~8 000 linhas.
+46. ✅ Bloco 6 — `js/engine.js` extraído do IIFE (`feat-refatoracao`). Contém o engine de
+      rentabilidade mensal (Modified Dietz): `_ultimoDiaDoMes`, `patrimonioNaData`,
+      `proventosNoMes`, `aportesLiquidosNoMes`, `rentabilidadeCarteiraMes`, `obterMTD`,
+      `patrimonioMercadoAtual`, `fecharMesAnteriorSeNecessario`, `completarCotacoesFechamentoCripto`,
+      `completarUsdBrlFechamento`, `popularCotacoesFechamentoRetroativo`. Cache de sessão
+      `_mtdCache` declarado como global em engine.js. `atualizarHeatmapDOM`, `heatmapCelulasHTML`
+      e `secaoRentabilidadeHTML` mantidos no IIFE (geram HTML / tocam DOM). `index.html`
+      caiu de ~8 000 para ~7 400 linhas.
 
 ## Preferências de trabalho
 
