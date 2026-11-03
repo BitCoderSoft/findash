@@ -637,11 +637,19 @@ Princípios — manter consistência em telas novas:
       como globals), `js/graficos.js` (Bloco 4 — Chart.js + SVG). Ver `docs/migracao.md`
       para histórico completo e decisões de design.
 43. ✅ Corrige lucro fantasma no gráfico de barras "Evolução do patrimônio":
-      (a) `evolucaoMensal` limitava dedução do RESGATE RF ao APORTE acumulado —
+      (a) `evolucaoMensal` limitada dedução do RESGATE RF ao APORTE acumulado —
       impede custo negativo quando resgate inclui rendimentos que nunca entraram no custo;
       (b) `renderDashboard` mescla `cotacoesFechamento` no mapa de preços históricos antes
       de chamar `patrimonioNaData`, fornecendo fechamentos reais de cripto para meses
       fechados (antes caíam no fallback de custo → zero delta de mercado). `[EVOL v1]`.
+44. ✅ Gráfico "Consolidação de aportes" na página Posições (`[FLUXO v1]`): barras agrupadas
+      lado a lado (Compras verde / Vendas vermelho) acima da lista de posições, mostrando
+      o fluxo de capital mês a mês. `fluxoMensalAportes(usuarioId)` em `js/data.js` agrega
+      COMPRA+APORTE como entradas e VENDA+RESGATE como saídas. `dadosChartJsFluxo` e suporte
+      a `isGrouped: true` em `inicializarCharts` adicionados em `js/graficos.js`. Botão "?"
+      abre gaveta com explicação detalhada do que está e não está no gráfico. Roteador
+      `/posicoes` corrigido para chamar `inicializarCharts()` após montar o HTML (mesma
+      correção que já existia em `/dashboard` e `/proventos`).
 
 ## Preferências de trabalho
 

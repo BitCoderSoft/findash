@@ -210,6 +210,31 @@ Bate com os R$2.102,75 do PDF de análise gerado em 31/10.
 
 ---
 
+### Bug 3 — `inicializarCharts` não chamado em `/posicoes` (resolvido)
+
+**Sintoma:** gráfico "Consolidação de aportes" adicionado em `renderPosicoes`
+mostrava a área cinza (canvas vazio) mas sem barras — nenhum erro no console.
+
+**Causa:** o roteador de `/posicoes` não chamava `inicializarCharts()` após
+`app.innerHTML = html`. As outras rotas com Chart.js (`/dashboard`, `/proventos`)
+já tinham essa chamada; `/posicoes` nunca precisou porque nunca tinha gráfico.
+
+**Fix:** adicionar `inicializarCharts()` no `.then()` do roteador de `/posicoes`:
+```js
+renderPosicoes(user).then(function (html) {
+    if (seq !== navegacaoSeq) return;
+    app.innerHTML = html;
+    inicializarCharts(); // ← adicionado
+});
+```
+
+**Regra geral:** toda rota que rendere HTML contendo `htmlChartJs(...)` precisa
+chamar `inicializarCharts()` depois de `app.innerHTML = html`. Charts são
+enfileirados em `_chartQueue` durante o render; `inicializarCharts` processa a
+fila depois que o DOM existe.
+
+---
+
 ## BCB SGS 404 (observação, não é bug)
 
 **Sintoma:** console mostra

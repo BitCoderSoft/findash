@@ -369,6 +369,15 @@ a.nav-item:hover { color: var(--color-text); }
     font-weight: 500;
 }
 /* [RENT v4] bloco rentabilidade: linhas acumuladas + heatmap */
+/* [FLUXO v1] bloco do gráfico de consolidação de aportes (Posições) */
+.fluxo-bloco {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 20px 22px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-xs);
+}
 .rentab-bloco {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
@@ -5616,6 +5625,22 @@ function renderPosicoes(user) {
                 '<p class="empty-text">Assim que você registrar uma compra em "Lançamentos", ela aparece aqui com preço médio, total investido e saldo atual.</p></div>';
         }
 
+        // [FLUXO v1] gráfico de barras agrupadas: compras vs vendas mensais
+        var fluxo = fluxoMensalAportes(user.id);
+        var fluxoChartHTML = '';
+        if (fluxo.length) {
+            fluxoChartHTML = '<div class="fluxo-bloco">' +
+                '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">' +
+                '<div>' +
+                '<p style="font-size:var(--text-sm);font-weight:600;color:var(--color-text);margin:0;">Consolidação de aportes</p>' +
+                '<p style="font-size:var(--text-xs);color:var(--color-text-subtle);margin:3px 0 0;">Quanto foi investido e retirado a cada mês</p>' +
+                '</div>' +
+                '<button type="button" class="info-button" data-drawer-open="drawer-info-fluxo" aria-label="Como funciona este gráfico">?</button>' +
+                '</div>' +
+                htmlChartJs('chart-fluxo-aportes', dadosChartJsFluxo(fluxo), function (v) { return 'R$ ' + fmt2(v); }, 200) +
+                '</div>';
+        }
+
         var corpo = (grupos.length || rfPosicoes.length)
             ? '<div class="summary-grid">' +
               '<div class="summary-card"><span class="summary-card-title">Saldo atual</span><p class="kpi-value" style="margin-top: 10px;">' +
@@ -5633,7 +5658,7 @@ function renderPosicoes(user) {
               '<button type="button" class="info-button" data-drawer-open="drawer-info-rentabilidade" aria-label="Como calculamos os destaques">?</button></div>' + destaquesHTML + '</div>' +
               '<div class="summary-card"><div class="summary-card-header"><span class="summary-card-title">Posições no lucro</span>' +
               '<button type="button" class="info-button" data-drawer-open="drawer-info-rentabilidade" aria-label="Como calculamos isso">?</button></div>' + noLucroHTML + '</div>' +
-              '</div>' + (grupos.length ? barraAcordeaoHTML(grupos) : '') + gruposHTML
+              '</div>' + fluxoChartHTML + (grupos.length ? barraAcordeaoHTML(grupos) : '') + gruposHTML
             : gruposHTML;
 
         return '' +
@@ -5654,6 +5679,25 @@ function renderPosicoes(user) {
             '<p style="margin-bottom: 16px;"><strong>Rentabilidade de uma posição</strong> = (preço atual − preço médio) ÷ preço médio. Positiva é lucro, negativa é prejuízo.</p>' +
             '<p style="margin-bottom: 16px;"><strong>Melhor posição / Pior posição</strong> = as posições com a maior e a menor rentabilidade entre tudo que você tem em carteira hoje.</p>' +
             '<p><strong>Posições no lucro</strong> = quantas das suas posições com cotação disponível têm rentabilidade positiva neste momento, sobre o total de posições avaliadas (ativos sem cotação no momento ficam de fora da conta). Tokens com <strong>custo zero</strong> (só entradas) contam como lucro, mas não entram em melhor/pior, porque não existe porcentagem sobre custo zero.</p>' +
+            '</div><div class="drawer-footer"><button type="button" class="button ghost" data-drawer-close>Fechar</button></div></div>' +
+            '<div id="drawer-info-fluxo" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-fluxo-title">' +
+            '<div class="drawer-header"><h2 id="drawer-fluxo-title">Consolidação de aportes</h2>' +
+            '<button type="button" class="drawer-close" data-drawer-close aria-label="Fechar">&times;</button></div>' +
+            '<div class="drawer-body">' +
+            '<p style="margin-bottom:16px;">Este gráfico mostra, mês a mês, quanto dinheiro <strong>entrou</strong> e quanto <strong>saiu</strong> da sua carteira por decisão sua. As barras ficam lado a lado para facilitar a comparação.</p>' +
+            '<p style="font-weight:600;margin-bottom:8px;">O que está incluído</p>' +
+            '<ul style="margin:0 0 16px;padding-left:20px;line-height:1.7;">' +
+            '<li><strong>Compras (verde):</strong> COMPRA de ações, FIIs, BDRs, ETFs e criptomoedas — valor de face (quantidade × preço) mais taxas de corretagem. Para Renda Fixa, o valor do APORTE.</li>' +
+            '<li><strong>Vendas (vermelho):</strong> VENDA de renda variável — valor bruto da venda (quantidade × preço de venda, sem descontar taxas). Para Renda Fixa, o valor do RESGATE.</li>' +
+            '</ul>' +
+            '<p style="font-weight:600;margin-bottom:8px;">O que não está incluído</p>' +
+            '<ul style="margin:0 0 16px;padding-left:20px;line-height:1.7;">' +
+            '<li><strong>ENTRADA e STAKE:</strong> recebimentos sem custo (airdrop, staking, mineração). Não representam dinheiro que você movimentou.</li>' +
+            '<li><strong>SAÍDA:</strong> transferência de cripto para fora do portfólio sem venda. Não gera caixa.</li>' +
+            '<li><strong>CONVERSÃO:</strong> troca entre criptos dentro da carteira. O custo migra de um ativo para outro, sem fluxo de dinheiro real.</li>' +
+            '<li><strong>PROVENTO e RENDIMENTO de RF:</strong> dividendos e juros recebidos. Aparecem na aba Proventos — aqui o foco é só nos seus aportes e retiradas.</li>' +
+            '</ul>' +
+            '<p style="color:var(--color-text-subtle);font-size:var(--text-xs);">Dica: um mês sem barra de Vendas significa que você só investiu naquele mês, sem resgatar nada.</p>' +
             '</div><div class="drawer-footer"><button type="button" class="button ghost" data-drawer-close>Fechar</button></div></div>';
     });
 }
@@ -6298,6 +6342,7 @@ function renderCurrentRoute() {
         renderPosicoes(user).then(function (html) {
             if (seq !== navegacaoSeq) return; // [MOTOR v2]
             app.innerHTML = html;
+            inicializarCharts();
         });
         return;
     }

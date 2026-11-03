@@ -740,3 +740,74 @@ function evolucaoMensal(usuarioId) {
     }
     return resultado;
 }
+
+// [FLUXO v1] Fluxo mensal de aportes e retiradas: compras vs vendas por mês.
+// Compras: COMPRA (qty×preço+taxas) + APORTE RF (t.valor)
+// Vendas:  VENDA (qty×preço) + RESGATE RF (t.valor)
+// Excluídos: ENTRADA, STAKE, CONVERSAO, SAIDA (não são fluxo de caixa direto),
+//            PROVENTO, RENDIMENTO_RF (não movimentam posição de capital)
+function fluxoMensalAportes(usuarioId) {
+    var db = loadDB();
+    var cId = carteiraIdAtual();
+    var ativosPorId = ativosPorIdDe(db);
+    var transacoes = db.transacoes.filter(function (t) {
+        return t.usuarioId === usuarioId && (!cId || t.carteiraId === cId);
+    });
+    if (!transacoes.length) return [];
+
+    var comprasPorMes = {}, vendasPorMes = {};
+    transacoes.forEach(function (t) {
+        var partes = t.data.split('-');
+        var chave = partes[0] + '-' + parseInt(partes[1], 10);
+        var ativo = ativosPorId[t.ativoId];
+        if (!ativo) return;
+
+        if (t.tipo === 'COMPRA') {
+            var v = (Number(t.quantidade) || 0) * (Number(t.precoUnitario) || 0) + (Number(t.taxas) || 0);
+            comprasPorMes[chave] = (comprasPorMes[chave] || 0) + v;
+        } else if (t.tipo === 'APORTE' && ativo.classe === 'RENDA_FIXA') {
+            comprasPorMes[chave] = (comprasPorMes[chave] || 0) + (Number(t.valor) || 0);
+        } else if (t.tipo === 'VENDA') {
+            var vv = (Number(t.quantidade) || 0) * (Number(t.precoUnitario) || 0);
+            vendasPorMes[chave] = (vendasPorMes[chave] || 0) + vv;
+        } else if (t.tipo === 'RESGATE' && ativo.classe === 'RENDA_FIXA') {
+            vendasPorMes[chave] = (vendasPorMes[chave] || 0) + (Number(t.valor) || 0);
+        }
+    });
+
+    var todosChaves = {};
+    Object.keys(comprasPorMes).forEach(function (k) { todosChaves[k] = true; });
+    Object.keys(vendasPorMes).forEach(function (k) { todosChaves[k] = true; });
+    var chaves = Object.keys(todosChaves);
+    if (!chaves.length) return [];
+
+    function parseChave(c) { var p = c.split('-'); return { ano: parseInt(p[0], 10), mes: parseInt(p[1], 10) }; }
+    function antes(a, b) { return a.ano < b.ano || (a.ano === b.ano && a.mes < b.mes); }
+    function depois(a, b) { return a.ano > b.ano || (a.ano === b.ano && a.mes > b.mes); }
+
+    var min = parseChave(chaves[0]), max = parseChave(chaves[0]);
+    chaves.forEach(function (c) {
+        var atual = parseChave(c);
+        if (antes(atual, min)) min = atual;
+        if (depois(atual, max)) max = atual;
+    });
+
+    var resultado = [];
+    var ano = min.ano, mes = min.mes;
+    while (ano < max.ano || (ano === max.ano && mes <= max.mes)) {
+        var chaveAtual = ano + '-' + mes;
+        var compras = comprasPorMes[chaveAtual] || 0;
+        var vendas = vendasPorMes[chaveAtual] || 0;
+        if (compras > 0 || vendas > 0) {
+            resultado.push({
+                anoMes: ano + '-' + (mes < 10 ? '0' : '') + mes,
+                label: MESES_PT[mes - 1] + '/' + String(ano).slice(2),
+                compras: compras,
+                vendas: vendas,
+            });
+        }
+        mes += 1;
+        if (mes > 12) { mes = 1; ano += 1; }
+    }
+    return resultado;
+}

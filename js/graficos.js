@@ -209,6 +209,34 @@ function dadosChartJsProventos(evolucao) {
     };
 }
 
+// [FLUXO v1] Dados para o gráfico de barras agrupadas (lado a lado) de compras e vendas.
+function dadosChartJsFluxo(fluxo) {
+    return {
+        labels: fluxo.map(function (f) { return f.label; }),
+        isGrouped: true,
+        datasets: [
+            {
+                label: 'Compras',
+                data: fluxo.map(function (f) { return f.compras || null; }),
+                backgroundColor: 'rgba(34,197,94,0.72)',
+                borderColor: 'rgba(22,163,74,1)',
+                borderWidth: 1,
+                borderRadius: 3,
+                borderSkipped: false,
+            },
+            {
+                label: 'Vendas',
+                data: fluxo.map(function (f) { return f.vendas || null; }),
+                backgroundColor: 'rgba(239,68,68,0.65)',
+                borderColor: 'rgba(220,38,38,1)',
+                borderWidth: 1,
+                borderRadius: 3,
+                borderSkipped: false,
+            },
+        ],
+    };
+}
+
 // Gera o HTML de um canvas + script inline de inicialização do Chart.js
 // id: id único do canvas; dados: retorno de dadosChartJsEvolucao/Proventos
 // formato: função de formatação de valor para os eixos ('R$ X' ou 'R$ X,XX')
@@ -415,7 +443,7 @@ function inicializarCharts() {
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: { duration: 300 },
-                grouped: !item.dados.noStack,
+                grouped: item.dados.isGrouped || !item.dados.noStack,
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: {
@@ -451,13 +479,13 @@ function inicializarCharts() {
                 },
                 scales: {
                     x: {
-                        stacked: !isLine && !item.dados.noStack,
+                        stacked: !isLine && !item.dados.noStack && !item.dados.isGrouped,
                         grid: { display: false },
                         border: { display: false },
                         ticks: { color: tickColorX, font: { size: 10 } },
                     },
                     y: {
-                        stacked: !isLine && !item.dados.noStack,
+                        stacked: !isLine && !item.dados.noStack && !item.dados.isGrouped,
                         grid: { color: gridColor, lineWidth: 1, borderDash: [5, 3] },
                         border: { display: false, dash: [5, 3] },
                         ticks: {
