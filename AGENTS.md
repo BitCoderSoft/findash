@@ -35,23 +35,51 @@ máquina, mas não há servidor nem deploy público.
   infraestrutura do CDI. Usado exclusivamente para preencher `cotacoesFechamento[mes]["USDBRL"]`.
 - **Indicadores fundamentalistas**: bolsai.com.br — desativados
   (`INDICADORES_LIGADOS = false`) até resolver bloqueio de CORS no navegador.
-- **Sem dependências de terceiros**: zero npm, zero pip. O arquivo `dash-finance.html`
-  é autocontido (fontes via Google Fonts, tudo mais inline).
+- **Sem dependências de terceiros**: zero npm, zero pip. `index.html` + os
+  arquivos em `js/` são suficientes (fontes via Google Fonts, tudo mais inline).
 - **Não há `venv/`, `requirements.txt`, `manage.py` nem migrations** — tudo isso
   era da fase Django e não se aplica mais.
+- **Refatoração em andamento** (`feat-refatoracao`): o JS está sendo extraído do
+  `<script>` inline em arquivos separados em `js/`. Todos como scripts clássicos
+  (sem ES modules / `import`/`export`) para manter compatibilidade com `file://`
+  e GitHub Pages. Ordem de carregamento obrigatória — ver seção abaixo.
 
-## Arquivo principal
+## Arquivos principais
 
 ```
-index.html     ← FONTE DA VERDADE. 8 600+ linhas, ~1 MB.
-                 Abrir direto no navegador, sem servidor.
+index.html          ← FONTE DA VERDADE. ~9 600 linhas (HTML + CSS + IIFE JS).
+                      Abrir direto no navegador, sem servidor.
+js/constantes.js    ← extraído (Bloco 1): tokens, chaves, TTLs, classes, cores
+js/armazem.js       ← extraído (Bloco 2): camada armazem (localStorage / memória)
+js/data.js          ← extraído (Bloco 3): CRUD + motor de carteira + KPIs
+js/utils.js         ← extraído (Bloco U): formatação, datas, escapeHtml
+js/graficos.js      ← extraído (Bloco 4): Chart.js + SVG de evolução/alocação
 ```
 
 O restante da estrutura de diretórios (`investments/`, `dash_finance/`,
 `manage.py`, `requirements.txt`, `venv/`) é legado da fase Django — pode ser
 ignorado ou removido; não é mais mantido.
 
-## Estrutura interna do arquivo
+### Ordem de carregamento dos scripts (obrigatória)
+
+```html
+<script src="js/constantes.js"></script>   <!-- sem dependências -->
+<script src="js/armazem.js"></script>       <!-- usa: CONSTANTES -->
+<script src="js/data.js"></script>          <!-- usa: CONSTANTES, ARMAZEM -->
+<script src="js/utils.js"></script>         <!-- usa: CONSTANTES (CLASSES_INTEIRAS) -->
+<script src="js/graficos.js"></script>      <!-- usa: CONSTANTES, utils -->
+<script>                                    <!-- IIFE: usa tudo acima -->
+(function () { 'use strict';
+  /* MARKET DATA, ROTEAMENTO, COMPONENTES UI, PÁGINAS, BOOTSTRAP */
+})();
+</script>
+```
+
+Todos os arquivos `js/` declaram funções no escopo global (sem IIFE). O IIFE
+em `index.html` acessa tudo via globals. Não introduzir `import`/`export` —
+quebra `file://` e GitHub Pages.
+
+## Estrutura interna de index.html
 
 O arquivo segue esta ordem:
 
@@ -61,24 +89,25 @@ O arquivo segue esta ordem:
 2. **`<style>`** — design system completo (~1 600 linhas de CSS).
 3. **`<body>`** — contém apenas `<div id="app"></div>` + uma faixa de aviso de
    armazenamento. Todo o HTML das páginas é gerado por JS.
-4. **`<script>`** — todo o JavaScript inline, organizado em blocos marcados
+4. **`<script src="js/...">` tags** — 5 arquivos externos (ver acima).
+5. **`<script>` (IIFE)** — JavaScript restante, organizado em blocos marcados
    com comentários `/* ===...=== */`.
 
-### Blocos JS (em ordem no arquivo)
+### Blocos JS — estado da extração
 
-| Bloco | Responsabilidade |
-|---|---|
-| CONSTANTES | Tokens, chaves de cache, TTLs, classes de ativo, cores |
-| ARMAZENAMENTO | Camada `armazem` (localStorage / fallback em memória) |
-| CAMADA DE DADOS | CRUD sobre o JSON do `armazem` (usuários, ativos, transações) |
-| MOTOR DE CARTEIRA | Preço médio ponderado, posições, KPIs, alocação |
-| GRÁFICOS | SVG montado em JS (evolução mensal, donut de alocação, gráfico de preço) |
-| MARKET DATA (brapi) | Cotações B3, histórico de preço, rankings de mercado |
-| MARKET DATA (Binance) | Cotações de cripto, fallback entre pares BRL/USDT |
-| ROTEAMENTO | `navegar()`, sequenciamento de renderização, `renderCurrentRoute()` |
-| COMPONENTES UI | Topbar, rodapé, saudação, drawer, formulário de lançamento |
-| PÁGINAS | Uma função `renderXxx(user)` por página (ver lista abaixo) |
-| BOOTSTRAP | Inicialização, evento DOMContentLoaded, delegação de eventos |
+| Bloco | Arquivo atual | Status |
+|---|---|---|
+| CONSTANTES | `js/constantes.js` | ✅ extraído |
+| ARMAZENAMENTO | `js/armazem.js` | ✅ extraído |
+| CAMADA DE DADOS + MOTOR | `js/data.js` | ✅ extraído |
+| UTILITÁRIOS | `js/utils.js` | ✅ extraído |
+| GRÁFICOS | `js/graficos.js` | ✅ extraído |
+| MARKET DATA (brapi) | `index.html` IIFE | pendente |
+| MARKET DATA (Binance) | `index.html` IIFE | pendente |
+| ROTEAMENTO | `index.html` IIFE | pendente |
+| COMPONENTES UI | `index.html` IIFE | pendente |
+| PÁGINAS | `index.html` IIFE | pendente |
+| BOOTSTRAP | `index.html` IIFE | pendente |
 
 ## Páginas / Rotas
 
@@ -264,6 +293,13 @@ Rentabilidade = Numerador / Denominador × 100
 | Ação/FII/BDR | brapi `startDate/endDate&interval=1d` em chunks de 90 dias | `STOCK_HIST_KEY` (localStorage, permanente) |
 | Cripto | Binance klines `interval=1M`, limit dinâmico desde `dataInicio` | em memória por sessão |
 | Renda Fixa | Custo contábil (sem API) | — |
+
+**`[EVOL v1]`** — Gráfico de barras "Evolução do patrimônio" em `renderDashboard`:
+para meses fechados, `patrimonioNaData` era chamado só com `loadStockHist()` (B3).
+Cripto não tem entrada em `stockHist`, caía no fallback de custo → zero delta.
+Fix: antes de chamar `patrimonioNaData`, mescla `cotacoesFechamento` no mapa de
+preços para fornecer os fechamentos reais de cripto (e B3, sem sobrescrever).
+Tag adicionada em `renderDashboard` (index.html).
 
 **`[HIST v1]`** — Plano free brapi suporta apenas `interval=1d`; `range=2y` e `interval=1mo`
 retornam erro. A solução usa `startDate/endDate` com janelas ≤ 90 dias (chunks gerados por
@@ -594,6 +630,19 @@ Princípios — manter consistência em telas novas:
       Backup exporta/importa apenas a carteira ativa. Corrigido bug: `verificarPosicaoEncerrada` usava
       `processarCarteira(usuarioId)` (inválido) → corrigido para `custoMedioPorAtivo(usuarioId)`.
 
+42. ✅ Refatoração JS modular (`feat-refatoracao`) — extração progressiva do JS inline em
+      arquivos `js/` independentes (scripts clássicos, sem ES modules). Blocos extraídos
+      até agora: `js/constantes.js` (Bloco 1), `js/armazem.js` (Bloco 2), `js/data.js`
+      (Bloco 3), `js/utils.js` (Bloco U — funções de formatação/data que graficos.js precisava
+      como globals), `js/graficos.js` (Bloco 4 — Chart.js + SVG). Ver `docs/migracao.md`
+      para histórico completo e decisões de design.
+43. ✅ Corrige lucro fantasma no gráfico de barras "Evolução do patrimônio":
+      (a) `evolucaoMensal` limitava dedução do RESGATE RF ao APORTE acumulado —
+      impede custo negativo quando resgate inclui rendimentos que nunca entraram no custo;
+      (b) `renderDashboard` mescla `cotacoesFechamento` no mapa de preços históricos antes
+      de chamar `patrimonioNaData`, fornecendo fechamentos reais de cripto para meses
+      fechados (antes caíam no fallback de custo → zero delta de mercado). `[EVOL v1]`.
+
 ## Preferências de trabalho
 
 - Comunicação e conteúdo de UI em português (pt-BR).
@@ -602,8 +651,9 @@ Princípios — manter consistência em telas novas:
   verificar se foge desses clichês.
 - Mudanças de UI devem ser verificadas no navegador (abrir o arquivo), não só
   lidas no código.
-- Este arquivo (`AGENTS.md`) deve refletir o estado real do `dash-finance.html`,
-  inclusive o que ainda não foi commitado. Ao fechar um bloco do roadmap,
-  atualizar aqui no mesmo passo.
+- Este arquivo (`AGENTS.md`) deve refletir o estado real dos arquivos do projeto,
+  inclusive o que ainda não foi commitado. Ao fechar um bloco do roadmap ou
+  concluir uma etapa de migração, atualizar `AGENTS.md` e `docs/migracao.md`
+  **antes** de o usuário commitar — o commit deve incluir a documentação atualizada.
 - Ao usar a skill `dataviz` do ambiente, manter consistência com a paleta e
   os princípios acima.

@@ -5189,7 +5189,20 @@ function renderDashboard(user) {
         // [HIST v1] mapa mês → valor de mercado para o gráfico de barras evolutivo.
         // Computado via patrimonioNaData + stockHist (não usa patrimonioFim histórico,
         // que pode estar desatualizado caso o usuário adicione transações retroativas de RF).
+        // [EVOL v1] Mescla cotacoesFechamento para que cripto/B3 usem os preços reais
+        // de fechamento em meses fechados (sem isso, cripto cai no fallback de custo).
         var stockHistEvol = loadStockHist();
+        (function () {
+            var fech = loadCotacoesFechamento();
+            Object.keys(fech).forEach(function (mes) {
+                var cotMes = fech[mes];
+                Object.keys(cotMes).forEach(function (ticker) {
+                    if (ticker === 'IBOV' || ticker === 'IFIX' || ticker === 'USDBRL' || ticker[0] === '_') return;
+                    if (!stockHistEvol[ticker]) stockHistEvol[ticker] = {};
+                    if (stockHistEvol[ticker][mes] == null) stockHistEvol[ticker][mes] = cotMes[ticker];
+                });
+            });
+        }());
         var mesHojeEvol = hojeISO().slice(0, 7);
         var evolucaoRaw = evolucaoMensal(user.id);
         var saldoPorMes = {};

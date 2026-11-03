@@ -687,15 +687,24 @@ function evolucaoMensal(usuarioId) {
     var deltaCusto = processarCarteira(transacoes, ativosPorId).deltaCusto;
 
     var deltasPorMes = {}; // chave "ANO-MES" -> delta
+    // Rastreia APORTE acumulado por ativo de RF para limitar dedução do RESGATE.
+    // RESGATE inclui principal + rendimentos; só o principal entrou como custo,
+    // então deduzir o valor cheio criaria custo negativo (lucro fantasma no gráfico).
+    var aporteAcumRF = {};
     transacoes.forEach(function (t) {
         var partes = t.data.split('-');
         var chave = partes[0] + '-' + parseInt(partes[1], 10);
-        // APORTEs de RF: delta positivo; RESGATEs de RF: delta negativo
+        // APORTEs de RF: delta positivo; RESGATEs de RF: delta negativo limitado ao APORTE
         var ativo = ativosPorId[t.ativoId];
         if (t.tipo === 'APORTE' && ativo && ativo.classe === 'RENDA_FIXA') {
-            deltasPorMes[chave] = (deltasPorMes[chave] || 0) + (Number(t.valor) || 0);
+            var v = Number(t.valor) || 0;
+            aporteAcumRF[t.ativoId] = (aporteAcumRF[t.ativoId] || 0) + v;
+            deltasPorMes[chave] = (deltasPorMes[chave] || 0) + v;
         } else if (t.tipo === 'RESGATE' && ativo && ativo.classe === 'RENDA_FIXA') {
-            deltasPorMes[chave] = (deltasPorMes[chave] || 0) - (Number(t.valor) || 0);
+            var acum = aporteAcumRF[t.ativoId] || 0;
+            var deducao = Math.min(Number(t.valor) || 0, acum);
+            aporteAcumRF[t.ativoId] = acum - deducao;
+            deltasPorMes[chave] = (deltasPorMes[chave] || 0) - deducao;
         } else {
             deltasPorMes[chave] = (deltasPorMes[chave] || 0) + (deltaCusto[t.id] || 0);
         }
