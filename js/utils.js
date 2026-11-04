@@ -104,7 +104,7 @@ function escapeHtml(s) {
 // [MOTOR v2 · 28/09/2026] 'AAAA-MM-DD' (formato salvo nas transações) ->
 // 'DD/MM/AAAA'. Só manipula string, sem Date, pra não deslocar o dia por fuso.
 function formatDataBR(isoData) {
-    var p = String(isoData || '').split('-');
+    var p = String(isoData || '').substring(0, 10).split('-');
     if (p.length !== 3) return String(isoData || '');
     return p[2] + '/' + p[1] + '/' + p[0];
 }
