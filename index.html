@@ -6,7 +6,11 @@
 <!-- [MOBILE v1] cor da barra do navegador no celular e base pro PWA -->
 <meta name="theme-color" content="#201c1a">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FinDash">
 <meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>FinDash</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -186,6 +190,36 @@ a[data-rota] {
     color: #fff;
     opacity: 0.88;
     z-index: 50;
+}
+/* [PWA v1] Banner de atualização do app */
+.pwa-update-banner {
+    position: fixed;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%) translateY(120%);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--color-primary);
+    color: #fff;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: var(--text-sm);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    transition: transform 320ms cubic-bezier(.4,0,.2,1);
+    white-space: nowrap;
+}
+.pwa-update-banner.visivel { transform: translateX(-50%) translateY(0); }
+.pwa-update-banner button {
+    appearance: none;
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 6px;
+    background: transparent;
+    color: #fff;
+    font-size: var(--text-xs);
+    padding: 4px 10px;
+    cursor: pointer;
 }
 h1, h2, h3, p { margin: 0; }
 h1, h2 { font-family: var(--font-display); font-weight: 600; }
@@ -7536,6 +7570,45 @@ carregarArmazenamento().then(function () {
     }());
     renderCurrentRoute();
 });
+
+// [PWA v1] Registra o Service Worker para modo instalável e cache offline
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+        navigator.serviceWorker.register('./service-worker.js').catch(function (err) {
+            console.warn('SW não registrado:', err);
+        });
+        // Escuta mensagem do SW avisando que nova versão foi ativada
+        navigator.serviceWorker.addEventListener('message', function (ev) {
+            if (ev.data && ev.data.type === 'SW_ATUALIZADO') {
+                var banner = document.createElement('div');
+                banner.className = 'pwa-update-banner';
+                banner.innerHTML =
+                    '<span>✦ FinDash atualizado!</span>' +
+                    '<button id="pwa-recarregar">Recarregar</button>' +
+                    '<button id="pwa-fechar" style="border:none;background:none;color:rgba(255,255,255,0.6);font-size:18px;padding:0 2px;cursor:pointer;">×</button>';
+                document.body.appendChild(banner);
+                // Dá um frame para o CSS animar
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () { banner.classList.add('visivel'); });
+                });
+                document.getElementById('pwa-recarregar').addEventListener('click', function () {
+                    window.location.reload();
+                });
+                document.getElementById('pwa-fechar').addEventListener('click', function () {
+                    banner.classList.remove('visivel');
+                    setTimeout(function () { banner.remove(); }, 350);
+                });
+                // Auto-oculta após 8s sem interação
+                setTimeout(function () {
+                    if (banner.parentNode) {
+                        banner.classList.remove('visivel');
+                        setTimeout(function () { if (banner.parentNode) banner.remove(); }, 350);
+                    }
+                }, 8000);
+            }
+        });
+    });
+}
 
 })();
 </script>
