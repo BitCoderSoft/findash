@@ -5163,7 +5163,7 @@ function processarFormulario(form) {
                 // [SUP v1] dispositivo novo: baixa dados da nuvem em background
                 carregarBancoSupabase(localUser.id).then(function (resultado) {
                     if (resultado === true) {
-                        showMessage('Carteira carregada da nuvem.', 'success');
+                        showMessage('Carteira sincronizada com a nuvem.', 'success');
                         renderCurrentRoute();
                     } else if (resultado === 'MIGRACAO_PENDENTE') {
                         showMessage('Dados locais não sincronizados. Vá em Backup → Sincronizar agora.', 'error');

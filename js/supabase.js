@@ -191,8 +191,8 @@ function supUpsertBalanceamento(carteiraId, dados) {
 }
 
 // ----------------------------------------------------------------
-// carregarBancoSupabase — passo 2 do two-step loading
-// Retorna: false | 'MIGRACAO_PENDENTE' | true (dados baixados — re-renderizar)
+// carregarBancoSupabase — sincronização bidirecional a cada abertura
+// Retorna: false | 'MIGRACAO_PENDENTE' | true (dados atualizados — re-renderizar)
 // ----------------------------------------------------------------
 function carregarBancoSupabase(usuarioIdLocal) {
     if (!supLogado()) return Promise.resolve(false);
@@ -202,7 +202,7 @@ function carregarBancoSupabase(usuarioIdLocal) {
         .select('id', { count: 'exact', head: true })
         .eq('usuario_id', uuid)
         .then(function (res) {
-            if (res.error) { console.warn('[Supabase] load:', res.error.message); return false; }
+            if (res.error) { console.warn('[Supabase] sync:', res.error.message); return false; }
 
             var cloudCount = res.count || 0;
             var db         = loadDB();
@@ -210,9 +210,10 @@ function carregarBancoSupabase(usuarioIdLocal) {
                 return String(t.usuarioId) === String(usuarioIdLocal);
             }).length;
 
+            // Primeira vez sem migração: pede migração manual
             if (cloudCount === 0 && localCount > 0) return 'MIGRACAO_PENDENTE';
-            if (cloudCount > 0 && localCount === 0) return _baixarBancoSupabase(usuarioIdLocal, uuid);
-            return false; // local já tem dados → offline-first, local vence
+            // Sempre sincroniza (baixa nuvem + sobe offline)
+            return _sincronizarBancoSupabase(usuarioIdLocal, uuid);
         })
         .catch(function (e) {
             console.warn('[Supabase] offline:', e && e.message);
@@ -221,8 +222,74 @@ function carregarBancoSupabase(usuarioIdLocal) {
 }
 
 // ----------------------------------------------------------------
+// _sincronizarBancoSupabase — sincronização bidirecional
+// 1) Baixa tudo da nuvem
+// 2) Detecta itens criados offline (local sem ID na nuvem) e faz upload
+// 3) Mescla nuvem → local (additive por ID)
+// ----------------------------------------------------------------
+function _sincronizarBancoSupabase(usuarioIdLocal, uuid) {
+    return Promise.all([
+        supabaseClient.from('carteiras')               .select('id').eq('usuario_id', uuid),
+        supabaseClient.from('ativos')                  .select('id').eq('usuario_id', uuid),
+        supabaseClient.from('transacoes')              .select('id').eq('usuario_id', uuid),
+        supabaseClient.from('objetivos')               .select('id').eq('usuario_id', uuid),
+    ]).then(function (idResults) {
+        var erros = idResults.filter(function (r) { return r.error; });
+        if (erros.length) {
+            erros.forEach(function (r) { console.warn('[Supabase] sync-ids:', r.error.message); });
+            return _baixarBancoSupabase(usuarioIdLocal, uuid);
+        }
+
+        var cloudCarteiraIds = (idResults[0].data || []).map(function (r) { return Number(r.id); });
+        var cloudAtivoIds    = (idResults[1].data || []).map(function (r) { return Number(r.id); });
+        var cloudTxIds       = (idResults[2].data || []).map(function (r) { return Number(r.id); });
+        var cloudObjIds      = (idResults[3].data || []).map(function (r) { return Number(r.id); });
+
+        var db  = loadDB();
+        var sid = String(usuarioIdLocal);
+
+        // Itens criados offline (existem no local mas não na nuvem)
+        var offlineCarteiras = (db.carteiras || []).filter(function (c) {
+            return String(c.usuarioId) === sid && cloudCarteiraIds.indexOf(c.id) === -1;
+        });
+        var offlineAtivos = (db.ativos || []).filter(function (a) {
+            return cloudAtivoIds.indexOf(a.id) === -1;
+        });
+        var offlineTxs = (db.transacoes || []).filter(function (t) {
+            return String(t.usuarioId) === sid && cloudTxIds.indexOf(t.id) === -1;
+        });
+        var offlineObjs = (db.objetivos || []).filter(function (o) {
+            return String(o.usuarioId) === sid && cloudObjIds.indexOf(o.id) === -1;
+        });
+
+        var uploads = [];
+        offlineCarteiras.forEach(function (c) { uploads.push(supUpsertCarteira(c)); });
+        offlineAtivos.forEach(function (a) {
+            uploads.push(supabaseClient.from('ativos').upsert({
+                id: a.id, usuario_id: uuid, ticker: a.ticker, classe: a.classe,
+                criado_em: a.criadoEm ? new Date(a.criadoEm).toISOString() : new Date().toISOString(),
+            }, { onConflict: 'id' }));
+        });
+        offlineTxs.forEach(function (t) { uploads.push(supUpsertTransacao(t)); });
+        offlineObjs.forEach(function (o) { uploads.push(supUpsertObjetivo(o)); });
+
+        if (uploads.length) {
+            console.log('[Supabase] subindo ' + uploads.length + ' item(ns) offline...');
+        }
+
+        return Promise.all(uploads).then(function () {
+            return _baixarBancoSupabase(usuarioIdLocal, uuid);
+        }).catch(function () {
+            // Upload falhou (ex: conflito de ID); continua com o download
+            return _baixarBancoSupabase(usuarioIdLocal, uuid);
+        });
+    }).catch(function () {
+        return _baixarBancoSupabase(usuarioIdLocal, uuid);
+    });
+}
+
+// ----------------------------------------------------------------
 // _baixarBancoSupabase — baixa todos os dados da nuvem para o localStorage
-// Chamado quando dispositivo novo (localCount = 0, cloudCount > 0)
 // ----------------------------------------------------------------
 function _baixarBancoSupabase(usuarioIdLocal, uuid) {
     return Promise.all([
@@ -247,6 +314,7 @@ function _baixarBancoSupabase(usuarioIdLocal, uuid) {
         var balsRows      = results[5].data || [];
 
         var db = loadDB();
+        var novosItens = 0; // contador para detectar se algo mudou
         db.carteiras              = db.carteiras              || [];
         db.ativos                 = db.ativos                 || [];
         db.transacoes             = db.transacoes             || [];
@@ -264,6 +332,7 @@ function _baixarBancoSupabase(usuarioIdLocal, uuid) {
                     nome:       row.nome,
                     criadoEm:   row.criado_em ? new Date(row.criado_em).getTime() : Date.now(),
                 });
+                novosItens++;
             }
         });
 
@@ -277,6 +346,7 @@ function _baixarBancoSupabase(usuarioIdLocal, uuid) {
                     classe:   row.classe,
                     criadoEm: row.criado_em ? new Date(row.criado_em).getTime() : Date.now(),
                 });
+                novosItens++;
             }
         });
 
@@ -302,6 +372,7 @@ function _baixarBancoSupabase(usuarioIdLocal, uuid) {
                 if (row.valor     != null)          t.valor            = Number(row.valor);
                 if (row.subtipo)                    t.subtipo          = row.subtipo;
                 db.transacoes.push(t);
+                novosItens++;
             }
         });
 
@@ -321,6 +392,7 @@ function _baixarBancoSupabase(usuarioIdLocal, uuid) {
                     criadoEm:     row.criado_em     ? new Date(row.criado_em).getTime()    : Date.now(),
                     concluidoEm:  row.concluido_em  ? row.concluido_em : null,
                 });
+                novosItens++;
             }
         });
 
@@ -345,6 +417,7 @@ function _baixarBancoSupabase(usuarioIdLocal, uuid) {
                 };
                 if (row.primeiro_mes) h.primeiroMes = true;
                 db.historicoRentabilidade.push(h);
+                novosItens++;
             }
         });
 
@@ -386,8 +459,8 @@ function _baixarBancoSupabase(usuarioIdLocal, uuid) {
         db.historicoRentabilidadeVersao = 8;
 
         saveDB(db);
-        console.log('[Supabase] banco carregado da nuvem: ' + txsRows.length + ' transação(ões)');
-        return true;
+        console.log('[Supabase] sync: ' + novosItens + ' item(ns) novo(s) da nuvem (' + txsRows.length + ' tx total)');
+        return novosItens > 0; // true = algo mudou → re-renderizar; false = já estava atualizado
     }).catch(function (e) {
         console.error('[Supabase] download erro:', e && e.message);
         return false;
