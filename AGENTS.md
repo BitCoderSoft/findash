@@ -670,6 +670,33 @@ Princípios — manter consistência em telas novas:
       `_mtdCache` declarado como global em engine.js. `atualizarHeatmapDOM`, `heatmapCelulasHTML`
       e `secaoRentabilidadeHTML` mantidos no IIFE (geram HTML / tocam DOM). `index.html`
       caiu de ~8 000 para ~7 400 linhas.
+47. ✅ Menu mobile redesenhado (`[MOBILE v2]`): gaveta lateral direita (slide da direita,
+      `translateX`) em vez de tela inteira de cima (`translateY`). Largura `min(300px, 85vw)`,
+      fonte `--text-md`, `overflow-y: auto`. Overlay dedicado `#menu-mobile-overlay` com fade;
+      toque fora fecha o menu. `APP_VERSAO` 1.6.0.
+48. ✅ Bug corrigido — sombra da gaveta travada no mobile: lógica de fechamento de drawer
+      checava `nextElementSibling` primeiro para encontrar o overlay, mas no dashboard o
+      `drawer-transacao` tem um `drawer-overlay` como `nextSibling` (pertencente ao
+      `drawer-info-resultado-custo`). Overlay errado era limpo; overlay real permanecia
+      bloqueando a tela. Corrigido invertendo prioridade: `previousElementSibling` primeiro
+      (onde todos os overlays ficam posicionados no HTML do app).
+49. ✅ Bug corrigido — data mal formatada em "Objetivos concluídos": `concluidoEm` vindo do
+      Supabase chega como ISO datetime completo (`2026-10-11T00:00:00+00:00`); `formatDataBR`
+      (em `js/utils.js`) adicionou `.substring(0, 10)` para truncar ao `YYYY-MM-DD` antes de
+      formatar.
+50. ✅ PWA instalável (`[PWA v1]`): `manifest.json` (nome, ícones, `display: "standalone"`,
+      `start_url: "."`), `service-worker.js` (cache-first, `REDE_DIRETA` para APIs externas,
+      versão `findash-v1.6.0` alinhada ao `APP_VERSAO`), ícones `icons/icon-192.png` e
+      `icons/icon-512.png` (logo centralizada no fundo `#201c1a`). Banner toast de atualização
+      ("FinDash atualizado!") disparado por `postMessage` do SW ao ativar nova versão.
+      Para novo deploy: incrementar `var CACHE` no SW e `APP_VERSAO` juntos.
+51. ✅ Sincronização bidirecional Supabase (`[SUP v1.1]`) — `APP_VERSAO` 1.6.0.
+      `carregarBancoSupabase` agora roda `_sincronizarBancoSupabase` a cada boot (não só
+      em dispositivo novo). `_sincronizarBancoSupabase`: (1) busca IDs na nuvem; (2) detecta
+      itens criados offline (local sem ID na nuvem) e faz upload; (3) chama `_baixarBancoSupabase`
+      que mescla nuvem→local. `_baixarBancoSupabase` conta `novosItens` e retorna `true` só
+      quando algo mudou (evita re-render desnecessário). Fonte da verdade: Supabase; local =
+      cache de leitura rápida.
 
 ## Preferências de trabalho
 
