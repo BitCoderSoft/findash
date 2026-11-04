@@ -35,23 +35,55 @@ máquina, mas não há servidor nem deploy público.
   infraestrutura do CDI. Usado exclusivamente para preencher `cotacoesFechamento[mes]["USDBRL"]`.
 - **Indicadores fundamentalistas**: bolsai.com.br — desativados
   (`INDICADORES_LIGADOS = false`) até resolver bloqueio de CORS no navegador.
-- **Sem dependências de terceiros**: zero npm, zero pip. O arquivo `dash-finance.html`
-  é autocontido (fontes via Google Fonts, tudo mais inline).
+- **Sem dependências de terceiros**: zero npm, zero pip. `index.html` + os
+  arquivos em `js/` são suficientes (fontes via Google Fonts, tudo mais inline).
 - **Não há `venv/`, `requirements.txt`, `manage.py` nem migrations** — tudo isso
   era da fase Django e não se aplica mais.
+- **Refatoração em andamento** (`feat-refatoracao`): o JS está sendo extraído do
+  `<script>` inline em arquivos separados em `js/`. Todos como scripts clássicos
+  (sem ES modules / `import`/`export`) para manter compatibilidade com `file://`
+  e GitHub Pages. Ordem de carregamento obrigatória — ver seção abaixo.
 
-## Arquivo principal
+## Arquivos principais
 
 ```
-index.html     ← FONTE DA VERDADE. 8 600+ linhas, ~1 MB.
-                 Abrir direto no navegador, sem servidor.
+index.html          ← FONTE DA VERDADE. ~7 400 linhas (HTML + CSS + IIFE JS).
+                      Abrir direto no navegador, sem servidor.
+js/constantes.js    ← extraído (Bloco 1): tokens, chaves, TTLs, classes, cores
+js/armazem.js       ← extraído (Bloco 2): camada armazem (localStorage / memória)
+js/data.js          ← extraído (Bloco 3): CRUD + motor de carteira + KPIs
+js/utils.js         ← extraído (Bloco U): formatação, datas, escapeHtml
+js/graficos.js      ← extraído (Bloco 4): Chart.js + SVG de evolução/alocação
+js/market.js        ← extraído (Bloco 5): market data (brapi, Binance, BCB, bolsai)
+js/engine.js        ← extraído (Bloco 6): engine de rentabilidade (Modified Dietz, fechamento mensal, MTD)
 ```
 
 O restante da estrutura de diretórios (`investments/`, `dash_finance/`,
 `manage.py`, `requirements.txt`, `venv/`) é legado da fase Django — pode ser
 ignorado ou removido; não é mais mantido.
 
-## Estrutura interna do arquivo
+### Ordem de carregamento dos scripts (obrigatória)
+
+```html
+<script src="js/constantes.js"></script>   <!-- sem dependências -->
+<script src="js/armazem.js"></script>       <!-- usa: CONSTANTES -->
+<script src="js/data.js"></script>          <!-- usa: CONSTANTES, ARMAZEM -->
+<script src="js/utils.js"></script>         <!-- usa: CONSTANTES (CLASSES_INTEIRAS) -->
+<script src="js/graficos.js"></script>      <!-- usa: CONSTANTES, utils -->
+<script src="js/market.js"></script>        <!-- usa: CONSTANTES, ARMAZEM, utils, data -->
+<script src="js/engine.js"></script>        <!-- usa: CONSTANTES, ARMAZEM, data, utils, market -->
+<script>                                    <!-- IIFE: usa tudo acima -->
+(function () { 'use strict';
+  /* ROTEAMENTO, COMPONENTES UI, PÁGINAS, BOOTSTRAP */
+})();
+</script>
+```
+
+Todos os arquivos `js/` declaram funções no escopo global (sem IIFE). O IIFE
+em `index.html` acessa tudo via globals. Não introduzir `import`/`export` —
+quebra `file://` e GitHub Pages.
+
+## Estrutura interna de index.html
 
 O arquivo segue esta ordem:
 
@@ -61,24 +93,25 @@ O arquivo segue esta ordem:
 2. **`<style>`** — design system completo (~1 600 linhas de CSS).
 3. **`<body>`** — contém apenas `<div id="app"></div>` + uma faixa de aviso de
    armazenamento. Todo o HTML das páginas é gerado por JS.
-4. **`<script>`** — todo o JavaScript inline, organizado em blocos marcados
+4. **`<script src="js/...">` tags** — 7 arquivos externos (ver acima).
+5. **`<script>` (IIFE)** — JavaScript restante, organizado em blocos marcados
    com comentários `/* ===...=== */`.
 
-### Blocos JS (em ordem no arquivo)
+### Blocos JS — estado da extração
 
-| Bloco | Responsabilidade |
-|---|---|
-| CONSTANTES | Tokens, chaves de cache, TTLs, classes de ativo, cores |
-| ARMAZENAMENTO | Camada `armazem` (localStorage / fallback em memória) |
-| CAMADA DE DADOS | CRUD sobre o JSON do `armazem` (usuários, ativos, transações) |
-| MOTOR DE CARTEIRA | Preço médio ponderado, posições, KPIs, alocação |
-| GRÁFICOS | SVG montado em JS (evolução mensal, donut de alocação, gráfico de preço) |
-| MARKET DATA (brapi) | Cotações B3, histórico de preço, rankings de mercado |
-| MARKET DATA (Binance) | Cotações de cripto, fallback entre pares BRL/USDT |
-| ROTEAMENTO | `navegar()`, sequenciamento de renderização, `renderCurrentRoute()` |
-| COMPONENTES UI | Topbar, rodapé, saudação, drawer, formulário de lançamento |
-| PÁGINAS | Uma função `renderXxx(user)` por página (ver lista abaixo) |
-| BOOTSTRAP | Inicialização, evento DOMContentLoaded, delegação de eventos |
+| Bloco | Arquivo atual | Status |
+|---|---|---|
+| CONSTANTES | `js/constantes.js` | ✅ extraído |
+| ARMAZENAMENTO | `js/armazem.js` | ✅ extraído |
+| CAMADA DE DADOS + MOTOR | `js/data.js` | ✅ extraído |
+| UTILITÁRIOS | `js/utils.js` | ✅ extraído |
+| GRÁFICOS | `js/graficos.js` | ✅ extraído |
+| MARKET DATA (brapi, Binance, BCB, bolsai) | `js/market.js` | ✅ extraído |
+| ENGINE DE RENTABILIDADE (Modified Dietz, fechamento, MTD) | `js/engine.js` | ✅ extraído |
+| ROTEAMENTO | `index.html` IIFE | pendente |
+| COMPONENTES UI | `index.html` IIFE | pendente |
+| PÁGINAS | `index.html` IIFE | pendente |
+| BOOTSTRAP | `index.html` IIFE | pendente |
 
 ## Páginas / Rotas
 
@@ -115,7 +148,7 @@ Tudo persiste em um único objeto JSON na chave `DASH_FINANCE_DB_V1`:
 ### Ativo
 
 - `ticker`: string maiúscula, trimada.
-- `classe`: `'ACAO' | 'FII' | 'BDR' | 'CRIPTO' | 'RENDA_FIXA'`.
+- `classe`: `'ACAO' | 'FII' | 'BDR' | 'ETF' | 'CRIPTO' | 'RENDA_FIXA'`.
 - `mercado`: `'BOLSA' | 'CRIPTO'` — determina quais tipos de transação são
   permitidos e qual fonte de cotação usar.
 
@@ -140,9 +173,9 @@ Tudo persiste em um único objeto JSON na chave `DASH_FINANCE_DB_V1`:
 
 | Mercado | Tipos permitidos |
 |---|---|
-| BOLSA (Ação/FII/BDR) | `COMPRA`, `VENDA`, `PROVENTO` |
+| BOLSA (Ação/FII/BDR/ETF) | `COMPRA`, `VENDA`, `PROVENTO` |
 | CRIPTO | `COMPRA`, `VENDA`, `ENTRADA`, `SAIDA`, `CONVERSAO`, `STAKE` |
-| RENDA_FIXA | `APORTE`, `RENDIMENTO_RF`, `SAIDA` |
+| RENDA_FIXA | `APORTE`, `RENDIMENTO_RF`, `RESGATE` |
 
 Semântica dos tipos:
 
@@ -152,6 +185,7 @@ Semântica dos tipos:
 - `CONVERSAO` → retira da origem pelo PM e migra esse mesmo custo para o ativo
   destino (campo `ativoDestinoId` + `quantidadeDestino`).
 - `PROVENTO` / `RENDIMENTO_RF` → não mexe na posição; vai para o total de proventos.
+- `RESGATE` (RF) → subtrai do saldo líquido da posição RF (`saldo = Σ APORTE + Σ RENDIMENTO_RF − Σ RESGATE`). Fluxo negativo no Modified Dietz. Delta negativo na evolução mensal. Posição some da tela de Posições quando `saldo ≤ 0` (resgate total); com resgate parcial, coluna "Resgatado" aparece na tabela RF. `rfRendimentos` e `numPosicoes` excluem posições com `saldo ≤ 0`.
 
 ### Preço médio ponderado
 
@@ -263,6 +297,13 @@ Rentabilidade = Numerador / Denominador × 100
 | Ação/FII/BDR | brapi `startDate/endDate&interval=1d` em chunks de 90 dias | `STOCK_HIST_KEY` (localStorage, permanente) |
 | Cripto | Binance klines `interval=1M`, limit dinâmico desde `dataInicio` | em memória por sessão |
 | Renda Fixa | Custo contábil (sem API) | — |
+
+**`[EVOL v1]`** — Gráfico de barras "Evolução do patrimônio" em `renderDashboard`:
+para meses fechados, `patrimonioNaData` era chamado só com `loadStockHist()` (B3).
+Cripto não tem entrada em `stockHist`, caía no fallback de custo → zero delta.
+Fix: antes de chamar `patrimonioNaData`, mescla `cotacoesFechamento` no mapa de
+preços para fornecer os fechamentos reais de cripto (e B3, sem sobrescrever).
+Tag adicionada em `renderDashboard` (index.html).
 
 **`[HIST v1]`** — Plano free brapi suporta apenas `interval=1d`; `range=2y` e `interval=1mo`
 retornam erro. A solução usa `startDate/endDate` com janelas ≤ 90 dias (chunks gerados por
@@ -409,6 +450,7 @@ Chaves do sistema:
 | `DASH_FINANCE_HIST_CACHE_V1` | Cache de histórico de preço (detalhe do ativo) |
 | `DASH_FINANCE_RANKING_CACHE_V1` | Cache de rankings de mercado |
 | `DASH_FINANCE_IBOV_HIST_V1` | Histórico acumulado mensal do IBOV (`{ "YYYY-MM": close, "_mesPrevOk": "YYYY-MM" }`) |
+| `DASH_FINANCE_IFIX_HIST_V1` | Histórico acumulado mensal do IFIX (`{ "YYYY-MM": close, "_mesPrevOk": "YYYY-MM" }`) |
 | `DASH_FINANCE_STOCK_HIST_V1` | Histórico acumulado mensal por ticker B3 (`{ "ITSA4": { "YYYY-MM": close } }`) |
 | `DASH_FINANCE_USDBRL_HIST_V1` | Histórico acumulado mensal USD-BRL via BCB SGS 1 (`{ "YYYY-MM": close }`) |
 | `DASH_FINANCE_FECHAMENTOS_V1` | Snapshot de cotações no fechamento (`{ "YYYY-MM": { "TICKER": price, "IBOV": price, "USDBRL": price } }`) |
@@ -445,7 +487,7 @@ Princípios — manter consistência em telas novas:
 - **`BRAPI_TOKEN`**: hardcoded em `var BRAPI_TOKEN` (linha ~1823). Arquivo é
   de uso pessoal; **nunca versionar/publicar com o token real**.
 - **Novo ativo ou tipo de transação**: atualizar `CLASSES`, `CLASSES_ORDEM`,
-  `CLASSES_LANCAVEIS`, `CORES_CLASSE` e `TIPOS_POR_MERCADO`.
+  `CLASSES_LANCAVEIS`, `CLASSES_BOLSA`, `CLASSES_INTEIRAS`, `CORES_CLASSE` e `TIPOS_POR_MERCADO`.
 - **Nova página**: criar `renderNovaPagina(user)`, registrar em
   `renderCurrentRoute()`, adicionar item no topbar/menu mobile.
 
@@ -458,8 +500,7 @@ Princípios — manter consistência em telas novas:
 - `localStorage` não é compartilhado entre navegadores/dispositivos — backup
   manual (página Backup) é o único mecanismo de persistência fora do browser.
 - Sem testes automatizados.
-- Renda Fixa parcialmente implementada (APORTE/RENDIMENTO_RF existem no motor,
-  UI de aporte ainda básica).
+- Renda Fixa parcialmente implementada (APORTE/RENDIMENTO_RF/RESGATE existem; UI de aporte ainda básica).
 - Formulário não impede quantidade fracionada em Ação/FII/BDR no campo de
   quantidade (a validação `CLASSES_INTEIRAS` bloqueia, mas a mensagem de erro
   pode ser melhorada).
@@ -486,7 +527,7 @@ Princípios — manter consistência em telas novas:
 17. **Pendente**: suporte multi-dispositivo (hoje cada browser tem sua própria
       carteira — export/import é o workaround atual).
 18. ✅ Modo escuro (`[DARK v1]`): variáveis CSS em `@media (prefers-color-scheme: dark)` e `[data-theme="dark"]`; `--color-hero-bg` separa o fundo do KPI hero de `--color-primary`; botão `◑`/`☀` no topbar; `aplicarTema()` + `alternarTema()` com persistência em `DASH_FINANCE_THEME_V1`; cores de grade do Chart.js adaptadas por tema (`rgba(255,255,255,0.09)` no escuro); `color-scheme: dark` para inputs/selects nativos.
-19. ✅ Comparação com índices (CDI, IBOV) no gráfico acumulado de rentabilidade.
+19. ✅ Comparação com índices (CDI, IBOV, IFIX) no gráfico acumulado de rentabilidade.
 20. ✅ Histórico de preços mensais via chunks de 90 dias (`[HIST v1]`) — corrige
       rentabilidade 0% em carteiras antigas; estratégia `startDate/endDate` no
       plano free brapi; fechamentos acumulados em localStorage permanente;
@@ -559,6 +600,19 @@ Princípios — manter consistência em telas novas:
       semáforos visuais nos cards (dot colorido + seta + label CDI/IBOV substituem ✓/✗ texto);
       bloco "Alocação por classe" na aba Consistência com atual vs ideal (lê `calcularBalanceamento`
       + `lerBalanceamento`) e desvio em p.p. com cor — mostra aviso se ideais não definidos.
+40. ✅ IFIX no gráfico acumulado de rentabilidade (`[IFIX v1]`): `buscarPrecosMensaisIFIX` via `XFIX11` na brapi (ETF B3
+      que replica o IFIX — brapi não expõe `^IFIX` como índice direto). Mesma
+      arquitetura de chunks de 90 dias do IBOV). Sempre buscado independente de haver FII na carteira — serve como
+      referência comparativa de diversificação. Série verde (`#16a34a`), tracejada curta (`[2,2]`), oculta por padrão.
+      `ifixHist` persistido em `DASH_FINANCE_IFIX_HIST_V1`; exportado/importado no backup. `IFIX` gravado nos
+      snapshots `cotacoesFechamento` junto com `IBOV`. `_ifixMapaCache` para reutilização na sessão.
+39. ✅ Classe ETF (`[ETF v1]`): nova classe `'ETF'` (cyan `#0891b2`) no mercado BOLSA. Mesmas
+      colunas de Posições que Ação (Quantidade, Preço médio, Preço atual, Rentabilidade, Total
+      investido, Saldo atual, Proventos, % da carteira). ETF aparece em: Balanceamento, Simulador
+      de aporte, donut de alocação, heatmap/rentabilidade (via CLASSES_ORDEM), Análise (YoC inclui
+      ETF na base). `tipoIndicador` retorna `null` para ETF (sem indicadores fundamentalistas).
+      `CLASSES_INTEIRAS` inclui ETF (cotas inteiras na B3). Cotação via brapi.dev (mesmo endpoint
+      de ACAO/FII/BDR).
 38. ✅ Página Análise — etapas 3 e 4: aba Proventos com cards Total recebido, Últimos 12 meses,
       YoC acumulado, YoC 12m e Meses sem provento; grid "Por classe" quando há mais de uma classe
       pagadora. `calcularAnalise` inclui `RENDIMENTO_RF` no total de proventos (além de `PROVENTO`);
@@ -567,6 +621,55 @@ Princípios — manter consistência em telas novas:
       BOLSA (ACAO/FII/BDR), excluindo CRIPTO onde frações pequenas são normais. Corrigido HTML
       malformado na aba Concentração (`<div>` → `<ul>` na mensagem "dentro dos limites") que causava
       as abas Proventos e Saúde ficarem aninhadas dentro do div de Concentração e invisíveis.
+41. ✅ Multi-carteira (`[MULTI v1]`) — `APP_VERSAO` 1.5.0. Cada usuário pode ter N carteiras
+      independentes. Dados migrados automaticamente: `migrarParaMultiCarteira()` no boot tagueia
+      todas as transações/objetivos/historicoRentabilidade existentes com uma carteira "Principal"
+      criada on-the-fly. Novas transações, objetivos e histórico de rentabilidade recebem
+      `carteiraId` ao ser criados. `balanceamentos` reindexado por `carteiraId` (era `usuarioId`).
+      Session agora armazena `{ userId, carteiraId }`. `carteiraIdAtual()` lê o ID da carteira ativa.
+      Seletor no topbar: clique no nome do usuário abre dropdown com a lista de carteiras; checkmark
+      na carteira ativa; botão de edição abre gaveta de renomear; "Nova carteira" cria uma nova e
+      troca para ela imediatamente. Isolamento completo: mesma ticker em carteiras distintas = posições
+      independentes. `stockHist`/`ibovHist`/`ifixHist`/`usdBrlHist` são globais (market data compartilhado).
+      Backup exporta/importa apenas a carteira ativa. Corrigido bug: `verificarPosicaoEncerrada` usava
+      `processarCarteira(usuarioId)` (inválido) → corrigido para `custoMedioPorAtivo(usuarioId)`.
+
+42. ✅ Refatoração JS modular (`feat-refatoracao`) — extração progressiva do JS inline em
+      arquivos `js/` independentes (scripts clássicos, sem ES modules). Blocos extraídos:
+      `js/constantes.js` (Bloco 1), `js/armazem.js` (Bloco 2), `js/data.js` (Bloco 3),
+      `js/utils.js` (Bloco U), `js/graficos.js` (Bloco 4), `js/market.js` (Bloco 5),
+      `js/engine.js` (Bloco 6).
+      Ver `docs/migracao.md` para histórico completo e decisões de design.
+43. ✅ Corrige lucro fantasma no gráfico de barras "Evolução do patrimônio":
+      (a) `evolucaoMensal` limitada dedução do RESGATE RF ao APORTE acumulado —
+      impede custo negativo quando resgate inclui rendimentos que nunca entraram no custo;
+      (b) `renderDashboard` mescla `cotacoesFechamento` no mapa de preços históricos antes
+      de chamar `patrimonioNaData`, fornecendo fechamentos reais de cripto para meses
+      fechados (antes caíam no fallback de custo → zero delta de mercado). `[EVOL v1]`.
+44. ✅ Gráfico "Consolidação de aportes" na página Posições (`[FLUXO v1]`): barras agrupadas
+      lado a lado (Compras verde / Vendas vermelho) acima da lista de posições, mostrando
+      o fluxo de capital mês a mês. `fluxoMensalAportes(usuarioId)` em `js/data.js` agrega
+      COMPRA+APORTE como entradas e VENDA+RESGATE como saídas. `dadosChartJsFluxo` e suporte
+      a `isGrouped: true` em `inicializarCharts` adicionados em `js/graficos.js`. Botão "?"
+      abre gaveta com explicação detalhada do que está e não está no gráfico. Roteador
+      `/posicoes` corrigido para chamar `inicializarCharts()` após montar o HTML (mesma
+      correção que já existia em `/dashboard` e `/proventos`).
+45. ✅ Bloco 5 — `js/market.js` extraído do IIFE (`feat-refatoracao`). Contém todo o
+      market data: brapi.dev (B3), Binance (cripto), BCB SGS (USDBRL), bolsai (indicadores),
+      CDI, IBOV, IFIX, histórico mensal, cache de cotações/rankings, `gerarChunks`,
+      `_agregarMensalDescendente`, `_fetchChunksB3`. `buscarAtivoPorTicker` movida para
+      `js/data.js` (global) e `hojeISO` para `js/utils.js` (global), pois são chamadas por
+      market.js. `_ibovMapaCache`/`_ifixMapaCache` removidas do IIFE — agora são globals
+      em `market.js` (o IIFE lia os valores null locais em vez dos reais). `atualizarCotacaoConversao`
+      mantida no IIFE (acessa DOM). `index.html` caiu de ~9 600 para ~8 000 linhas.
+46. ✅ Bloco 6 — `js/engine.js` extraído do IIFE (`feat-refatoracao`). Contém o engine de
+      rentabilidade mensal (Modified Dietz): `_ultimoDiaDoMes`, `patrimonioNaData`,
+      `proventosNoMes`, `aportesLiquidosNoMes`, `rentabilidadeCarteiraMes`, `obterMTD`,
+      `patrimonioMercadoAtual`, `fecharMesAnteriorSeNecessario`, `completarCotacoesFechamentoCripto`,
+      `completarUsdBrlFechamento`, `popularCotacoesFechamentoRetroativo`. Cache de sessão
+      `_mtdCache` declarado como global em engine.js. `atualizarHeatmapDOM`, `heatmapCelulasHTML`
+      e `secaoRentabilidadeHTML` mantidos no IIFE (geram HTML / tocam DOM). `index.html`
+      caiu de ~8 000 para ~7 400 linhas.
 
 ## Preferências de trabalho
 
@@ -576,8 +679,9 @@ Princípios — manter consistência em telas novas:
   verificar se foge desses clichês.
 - Mudanças de UI devem ser verificadas no navegador (abrir o arquivo), não só
   lidas no código.
-- Este arquivo (`AGENTS.md`) deve refletir o estado real do `dash-finance.html`,
-  inclusive o que ainda não foi commitado. Ao fechar um bloco do roadmap,
-  atualizar aqui no mesmo passo.
+- Este arquivo (`AGENTS.md`) deve refletir o estado real dos arquivos do projeto,
+  inclusive o que ainda não foi commitado. Ao fechar um bloco do roadmap ou
+  concluir uma etapa de migração, atualizar `AGENTS.md` e `docs/migracao.md`
+  **antes** de o usuário commitar — o commit deve incluir a documentação atualizada.
 - Ao usar a skill `dataviz` do ambiente, manter consistência com a paleta e
   os princípios acima.
