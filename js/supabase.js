@@ -359,6 +359,20 @@ function _baixarBancoSupabase(usuarioIdLocal, uuid) {
             }
         });
 
+        // Remove carteira placeholder criada no login e aponta sessão para a real
+        if (carteirasRows.length) {
+            var cidsNuvem = carteirasRows.map(function (r) { return Number(r.id); });
+            db.carteiras = db.carteiras.filter(function (c) {
+                return c.usuarioId !== usuarioIdLocal || cidsNuvem.indexOf(c.id) !== -1;
+            });
+            var primeiraReal = db.carteiras
+                .filter(function (c) { return c.usuarioId === usuarioIdLocal; })
+                .sort(function (a, b) { return a.criadoEm - b.criadoEm; })[0];
+            if (primeiraReal && typeof setSession === 'function') {
+                setSession(usuarioIdLocal, primeiraReal.id);
+            }
+        }
+
         // Recalcular nextId para evitar colisões
         var todosIds = [0];
         (db.users      || []).forEach(function (e) { todosIds.push(e.id); });
