@@ -192,99 +192,53 @@ a[data-rota] {
     z-index: 50;
 }
 /* [PWA v1] Banner de atualização do app */
-/* [PWA v2] dialog de atualização disponível */
-.pwa-update-overlay {
+/* [PWA v2] banner de atualização — modelo KoinFinance, paleta FinDash */
+#pwa-banner-atualizacao {
     position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.45);
-    z-index: 299;
-    opacity: 0;
-    transition: opacity 280ms ease;
-    pointer-events: none;
-}
-.pwa-update-overlay.visivel { opacity: 1; pointer-events: auto; }
-.pwa-update-dialog {
-    position: fixed;
-    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-    left: 50%;
-    transform: translateX(-50%) translateY(32px);
+    bottom: 0;
+    left: 0;
+    right: 0;
     z-index: 300;
-    width: min(380px, calc(100vw - 32px));
     background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 14px;
-    padding: 20px 20px 16px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.22);
-    opacity: 0;
-    transition: opacity 280ms ease, transform 280ms cubic-bezier(.4,0,.2,1);
-    pointer-events: none;
-}
-.pwa-update-dialog.visivel {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-    pointer-events: auto;
-}
-.pwa-update-dialog-header {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 10px;
-}
-.pwa-update-icon {
-    flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    background: var(--color-primary);
-    color: #fff;
+    border-top: 2px solid var(--color-primary);
+    padding: 14px max(24px, env(safe-area-inset-left, 0px));
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
     display: flex;
     align-items: center;
-    justify-content: center;
-    font-size: 16px;
+    gap: 16px;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.12);
+    animation: pwaAvisoEntra 300ms ease;
 }
-.pwa-update-dialog-title {
+#pwa-banner-atualizacao[hidden] { display: none; }
+#pwa-banner-atualizacao p {
+    flex: 1;
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-subtle);
+}
+#pwa-banner-atualizacao strong {
+    display: block;
+    color: var(--color-text);
     font-size: var(--text-base);
     font-weight: 600;
-    color: var(--color-text);
-    line-height: 1.3;
-    margin-top: 2px;
+    margin-bottom: 2px;
 }
-.pwa-update-dialog-sub {
-    font-size: var(--text-sm);
-    color: var(--color-text-subtle);
-    margin-top: 2px;
-}
-.pwa-update-dialog-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 14px;
-    justify-content: flex-end;
-}
-.pwa-update-btn-later {
-    appearance: none;
-    border: 1px solid var(--color-border-strong);
-    border-radius: 7px;
-    background: transparent;
-    color: var(--color-text-subtle);
-    font-size: var(--text-sm);
-    font-family: inherit;
-    padding: 7px 14px;
-    cursor: pointer;
-}
-.pwa-update-btn-later:hover { background: var(--color-neutral-bg); }
-.pwa-update-btn-update {
+#pwa-btn-fechar {
     appearance: none;
     border: none;
-    border-radius: 7px;
-    background: var(--color-primary);
-    color: #fff;
-    font-size: var(--text-sm);
-    font-weight: 600;
-    font-family: inherit;
-    padding: 7px 16px;
+    background: none;
+    color: var(--color-text-subtle);
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px 6px;
     cursor: pointer;
+    flex-shrink: 0;
 }
-.pwa-update-btn-update:hover { opacity: 0.88; }
+#pwa-btn-fechar:hover { color: var(--color-text); }
+@keyframes pwaAvisoEntra {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
+}
 h1, h2, h3, p { margin: 0; }
 h1, h2 { font-family: var(--font-display); font-weight: 600; }
 
@@ -2068,6 +2022,16 @@ a.nav-item:hover { color: var(--color-text); }
 <ul class="messages" id="messages"></ul>
 <div id="app"></div>
 
+<!-- [PWA v2] banner de atualização disponível — oculto até SW detectar nova versão -->
+<div id="pwa-banner-atualizacao" hidden role="status" aria-live="polite">
+    <p>
+        <strong>Nova versão disponível</strong>
+        Atualize para ter as últimas melhorias.
+    </p>
+    <button type="button" class="button primary" id="pwa-btn-atualizar" style="white-space:nowrap;flex-shrink:0">Atualizar</button>
+    <button type="button" id="pwa-btn-fechar" aria-label="Fechar aviso">✕</button>
+</div>
+
 <script src="js/constantes.js"></script>
 <script src="js/armazem.js"></script>
 <script src="js/data.js"></script>
@@ -2502,7 +2466,7 @@ var _analiseCarregando = false;   // [ANAL v1] true durante o loading simulado
 
 // [UI v1 · 29/09/2026] versão do app e rodapé de todas as páginas logadas.
 // Mudou a versão? Troque só APP_VERSAO.
-var APP_VERSAO = '1.7.0';
+var APP_VERSAO = '1.7.1';
 var APP_ANO = 2026;
 
 function rodapeHTML() {
@@ -7634,74 +7598,51 @@ carregarArmazenamento().then(function () {
     }());
     renderCurrentRoute();
 
-    // [SUP v2] sincroniza com a nuvem a cada abertura do app (não só no login)
-    // Espera auth state ser confirmado → se logado, puxa nuvem em background → re-renderiza se mudou
-    _bootAuthPronto.then(function () {
-        var sess = getSession();
-        if (!supLogado() || !sess || !sess.userId) return;
-        carregarBancoSupabase(sess.userId).then(function (resultado) {
-            if (resultado === true) renderCurrentRoute();
-            else if (resultado === 'MIGRACAO_PENDENTE') {
-                showMessage('Dados locais não sincronizados. Vá em Backup → Sincronizar agora.', 'error');
-            }
-        });
-    });
+    // [SUP v2] sync ao abrir o app — usa auth.getUser() como KoinFinance (não onAuthStateChange,
+    // que pode disparar com null no primeiro evento em PWA, bloqueando o sync)
+    if (supabaseClient) {
+        supabaseClient.auth.getUser().then(function (res) {
+            var user = res && res.data && res.data.user;
+            if (!user) return; // não autenticado: nada a fazer
+            // garante que supLogado() funciona para carregarBancoSupabase
+            if (!_usuarioSupabase) _usuarioSupabase = user;
+            var dbBoot = loadDB();
+            var localUser = (dbBoot.users || []).filter(function (u) { return u.email === user.email; })[0];
+            if (!localUser) return; // usuário Supabase sem entrada local (ainda não fez login neste device)
+            carregarBancoSupabase(localUser.id).then(function (resultado) {
+                if (resultado === true) renderCurrentRoute();
+                else if (resultado === 'MIGRACAO_PENDENTE') {
+                    showMessage('Dados locais não sincronizados. Vá em Backup → Sincronizar agora.', 'error');
+                }
+            });
+        }).catch(function () {}); // sem rede: silencioso, app roda offline do cache local
+    }
 });
 
-// [PWA v2] Registra o Service Worker + dialog persistente de atualização
+// [PWA v2] Registra o Service Worker — banner de atualização modelo KoinFinance
+// Usa updatefound + statechange (não postMessage): mais simples e confiável
 if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./service-worker.js').catch(function (err) {
-            console.warn('SW não registrado:', err);
-        });
-        // Escuta mensagem do SW avisando que nova versão foi ativada
-        navigator.serviceWorker.addEventListener('message', function (ev) {
-            if (ev.data && ev.data.type === 'SW_ATUALIZADO') {
-                // Overlay semi-transparente
-                var overlay = document.createElement('div');
-                overlay.className = 'pwa-update-overlay';
-                // Dialog card persistente
-                var dialog = document.createElement('div');
-                dialog.className = 'pwa-update-dialog';
-                dialog.innerHTML =
-                    '<div class="pwa-update-dialog-header">' +
-                        '<div class="pwa-update-icon">↑</div>' +
-                        '<div>' +
-                            '<div class="pwa-update-dialog-title">Nova versão disponível</div>' +
-                            '<div class="pwa-update-dialog-sub">Atualize para garantir que seus dados estejam sincronizados.</div>' +
-                        '</div>' +
-                    '</div>' +
-                    '<div class="pwa-update-dialog-actions">' +
-                        '<button class="pwa-update-btn-later" id="pwa-depois">Mais tarde</button>' +
-                        '<button class="pwa-update-btn-update" id="pwa-atualizar">Atualizar agora</button>' +
-                    '</div>';
-                document.body.appendChild(overlay);
-                document.body.appendChild(dialog);
-
-                function fecharDialog() {
-                    overlay.classList.remove('visivel');
-                    dialog.classList.remove('visivel');
-                    setTimeout(function () {
-                        if (overlay.parentNode) overlay.remove();
-                        if (dialog.parentNode) dialog.remove();
-                    }, 300);
+    navigator.serviceWorker.register('./service-worker.js').then(function (reg) {
+        // Detecta nova versão; ignora primeira instalação (reg.active === null)
+        reg.addEventListener('updatefound', function () {
+            if (!reg.active) return;
+            var novoSW = reg.installing;
+            novoSW.addEventListener('statechange', function () {
+                if (novoSW.state === 'activated') {
+                    var banner = document.getElementById('pwa-banner-atualizacao');
+                    if (banner) banner.hidden = false;
                 }
-
-                // Anima entrada
-                requestAnimationFrame(function () {
-                    requestAnimationFrame(function () {
-                        overlay.classList.add('visivel');
-                        dialog.classList.add('visivel');
-                    });
-                });
-
-                document.getElementById('pwa-atualizar').addEventListener('click', function () {
-                    window.location.reload();
-                });
-                document.getElementById('pwa-depois').addEventListener('click', fecharDialog);
-                overlay.addEventListener('click', fecharDialog);
-            }
+            });
         });
+    }).catch(function (err) {
+        console.warn('SW não registrado:', err);
+    });
+
+    document.getElementById('pwa-btn-atualizar').addEventListener('click', function () {
+        location.reload();
+    });
+    document.getElementById('pwa-btn-fechar').addEventListener('click', function () {
+        document.getElementById('pwa-banner-atualizacao').hidden = true;
     });
 }
 

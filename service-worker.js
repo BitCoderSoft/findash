@@ -3,7 +3,7 @@
 // APIs externas (Supabase, brapi, Binance, BCB) vão direto à rede —
 // o app já tem cache próprio via localStorage/armazem.
 
-var CACHE = 'findash-v1.7.0';
+var CACHE = 'findash-v1.7.1';
 
 var ASSETS_ESTATICOS = [
     './',
@@ -52,13 +52,7 @@ self.addEventListener('activate', function (ev) {
                     .map(function (k) { return caches.delete(k); })
             );
         }).then(function () {
-            // Avisa todas as abas abertas que há uma nova versão
-            return self.clients.matchAll({ type: 'window' }).then(function (clients) {
-                clients.forEach(function (client) {
-                    client.postMessage({ type: 'SW_ATUALIZADO', versao: CACHE });
-                });
-                return self.clients.claim();
-            });
+            return self.clients.claim();
         })
     );
 });

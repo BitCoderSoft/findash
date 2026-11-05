@@ -688,22 +688,30 @@ Princípios — manter consistência em telas novas:
       `start_url: "."`), `service-worker.js` (cache-first, `REDE_DIRETA` para APIs externas),
       ícones `icons/icon-192.png` e `icons/icon-512.png` (logo centralizada no fundo `#201c1a`).
       Para novo deploy: incrementar `var CACHE` no SW e `APP_VERSAO` juntos.
-      Dialog de atualização (`[PWA v2]`): ao receber `SW_ATUALIZADO` via `postMessage`,
-      exibe dialog persistente com overlay — "Nova versão disponível" + botões "Atualizar agora"
-      (reload) e "Mais tarde" (fecha). Overlay clicável também fecha. Substituiu o toast
-      auto-oculto de 8s anterior. `APP_VERSAO` 1.7.0, `CACHE = findash-v1.7.0`.
+      Banner de atualização (`[PWA v2]`, modelo KoinFinance): banner fixo full-width na
+      base da tela — `border-top: 2px solid --color-primary`, "Nova versão disponível" +
+      "Atualize para ter as últimas melhorias." + botões "Atualizar" (primary) e "✕" (fechar).
+      HTML estático (`#pwa-banner-atualizacao[hidden]`) — sem criação dinâmica. Trigger via
+      `reg.addEventListener('updatefound', ...)` + `novoSW.state === 'activated'` (não
+      `postMessage`). Substituiu toast auto-oculto e dialog modal anteriores.
+      `APP_VERSAO` 1.7.1, `CACHE = findash-v1.7.1`.
 51. ✅ Sincronização bidirecional Supabase (`[SUP v1.1]`) — `APP_VERSAO` 1.6.0.
       `carregarBancoSupabase` / `_sincronizarBancoSupabase`: (1) busca IDs na nuvem; (2) detecta
       itens criados offline (local sem ID na nuvem) e faz upload; (3) chama `_baixarBancoSupabase`
       que mescla nuvem→local. `_baixarBancoSupabase` conta `novosItens` e retorna `true` só
       quando algo mudou (evita re-render desnecessário). Fonte da verdade: Supabase; local =
       cache de leitura rápida.
-52. ✅ Sincronização a cada abertura do app (`[SUP v2]`) — corrige bug onde `carregarBancoSupabase`
-      só era chamado no login (formulário), nunca ao reabrir o PWA/browser com sessão existente.
-      Fix: no boot (`carregarArmazenamento().then`), após `renderCurrentRoute()`, aguarda
-      `_bootAuthPronto` (resolve quando `onAuthStateChange` confirma a sessão) → chama
-      `carregarBancoSupabase` em background → se `resultado === true`, re-renderiza. Lançamentos
-      feitos em outro dispositivo aparecem ao abrir o app, sem necessidade de logout/login.
+52. ✅ Sincronização a cada abertura do app (`[SUP v2]`) — `APP_VERSAO` 1.7.0.
+      **Problema raiz**: `carregarBancoSupabase` só era chamado no handler do formulário de login,
+      nunca ao reabrir o PWA/browser com sessão existente. Uma tentativa anterior via
+      `_bootAuthPronto` / `onAuthStateChange` falhou porque o Supabase v2 pode disparar
+      `onAuthStateChange` com `sessao = null` como PRIMEIRO evento em contexto PWA/mobile
+      (token sendo verificado em background), fazendo `_usuarioSupabase = null` e bloqueando o sync.
+      **Fix (padrão KoinFinance)**: no boot, após `renderCurrentRoute()`, chama
+      `supabaseClient.auth.getUser()` diretamente (chamada HTTP à API, não listener de evento) →
+      se autenticado, localiza usuário local por e-mail, chama `carregarBancoSupabase(localUser.id)`
+      → se `resultado === true`, re-renderiza. Sem rede: silencioso, app roda offline do cache.
+      Lançamentos feitos em outro dispositivo aparecem ao abrir o app, sem necessidade de logout/login.
 
 ## Preferências de trabalho
 
