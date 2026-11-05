@@ -3,7 +3,7 @@
 // APIs externas (Supabase, brapi, Binance, BCB) vão direto à rede —
 // o app já tem cache próprio via localStorage/armazem.
 
-var CACHE = 'findash-v1.6.0';
+var CACHE = 'findash-v1.7.0';
 
 var ASSETS_ESTATICOS = [
     './',
